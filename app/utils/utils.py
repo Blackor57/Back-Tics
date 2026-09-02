@@ -3,7 +3,7 @@
 import re
 from bs4 import BeautifulSoup
 import html2text
-from config import MAX_SCROLL_HEIGHT_PX
+from app.core.config import MAX_SCROLL_HEIGHT_PX
 
 
 def configurar_html2text() -> html2text.HTML2Text:
@@ -40,8 +40,16 @@ async def auto_scroll_pagina(page) -> None:
     await page.evaluate(script_scroll)
 
 
+def auto_scroll_pagina_sync(page) -> None:
+    """Ejecuta scroll progresivo de forma síncrona para navegadores controlados por Playwright Sync."""
+    page.evaluate(f"""() => {{
+        window.scrollBy(0, Math.min(1500, {MAX_SCROLL_HEIGHT_PX}));
+    }}""")
+    page.wait_for_timeout(1000)
+
+
 def limpiar_dom_ruido(soup: BeautifulSoup) -> BeautifulSoup:
-    """Remueve etiquetas basuras y componentes de interfaz que no contienen información semántica."""
+    """Remueve etiquetas basura y componentes de interfaz que no contienen información semántica."""
     etiquetas_basura = [
         "script", "style", "nav", "footer", "header", "noscript",
         "iframe", "svg", "form", "aside", "button", "input", "dialog"

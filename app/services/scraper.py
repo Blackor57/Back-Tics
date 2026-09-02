@@ -5,10 +5,11 @@ from typing import Dict, Any, List
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from readability import Document
-from playwright.sync_api import sync_playwright  # <-- Cambio a sync_playwright
+from playwright.sync_api import sync_playwright
 
-from config import BROWSER_VIEWPORT, DEFAULT_USER_AGENT, PAGE_TIMEOUT_MS
-from utils import limpiar_dom_ruido, configurar_html2text
+from app.core.config import BROWSER_VIEWPORT, DEFAULT_USER_AGENT, PAGE_TIMEOUT_MS
+from app.utils.utils import limpiar_dom_ruido, configurar_html2text, auto_scroll_pagina_sync
+
 
 class UniversalScraperNoAI:
     def __init__(self):
@@ -60,11 +61,8 @@ class UniversalScraperNoAI:
 
             page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
             
-            # Auto-scroll simple síncrono
-            page.evaluate("""() => {
-                window.scrollBy(0, 1500);
-            }""")
-            page.wait_for_timeout(1000)
+            # Auto-scroll síncrono para cargar contenido dinámico
+            auto_scroll_pagina_sync(page)
 
             html_raw = page.content()
             site_title = page.title()

@@ -1,44 +1,15 @@
-# api.py
+# endpoint.py
 
-import sys
-import asyncio
-from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+# pyrefly: ignore [missing-import]
+from fastapi import APIRouter, HTTPException, status
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, HttpUrl, Field
 
-# =========================================================
-# CONFIGURACIÓN DEL EVENT LOOP EN WINDOWS (LIFESPAN)
-# =========================================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Forzar la política de ProactorEventLoop en Windows al arrancar el servidor
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    yield
+from app.services.scraper import UniversalScraperNoAI
+from app.services.deep_scraper import DeepScraperNoAI
 
-
-from scraper import UniversalScraperNoAI
-from deep_scraper import DeepScraperNoAI
-
-app = FastAPI(
-    title="Universal Web Scraper API",
-    description="API REST para la extracción de índices y contenido profundo (Deep Scraping) sin IA.",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# =========================================================
-# CONFIGURACIÓN DE CORS
-# =========================================================
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # En producción, especificar los orígenes permitidos
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+router = APIRouter(prefix="/scrape", tags=["Scraper"])
 
 # Instanciamos los scrapers
 scraper_indice = UniversalScraperNoAI()
@@ -50,24 +21,24 @@ deep_scraper = DeepScraperNoAI()
 # ==========================================
 
 class ScrapeIndexRequest(BaseModel):
-    url: HttpUrl = Field(..., example="https://rpp.pe/")
+    url: HttpUrl = Field(..., json_schema_extra={"example": "https://rpp.pe/"})
 
 
 class ItemDetalleRequest(BaseModel):
-    titulo: Optional[str] = Field(None, example="Título opcional del artículo en portada")
-    url: HttpUrl = Field(..., example="https://rpp.pe/peru/actualidad/sismo-en-peru-igp-reporto-temblor-noticia-1500000")
+    titulo: Optional[str] = Field(None, json_schema_extra={"example": "Título opcional del artículo en portada"})
+    url: HttpUrl = Field(..., json_schema_extra={"example": "https://rpp.pe/peru/actualidad/sismo-en-peru-igp-reporto-temblor-noticia-1500000"})
 
 
 class DeepScrapeRequest(BaseModel):
     items: List[ItemDetalleRequest] = Field(
         ..., 
-        min_items=1,
+        min_length=1,
         description="Lista de URLs/items detectados como novedades para extraer su contenido completo."
     )
 
 
 class FullPipelineRequest(BaseModel):
-    url: HttpUrl = Field(..., example="https://rpp.pe/")
+    url: HttpUrl = Field(..., json_schema_extra={"example": "https://rpp.pe/"})
     limit: Optional[int] = Field(
         default=5, 
         ge=1, 
@@ -110,21 +81,17 @@ class FullPipelineResponse(BaseModel):
 # ENDPOINTS HTTP POST
 # ==========================================
 
-@app.post(
-    "/api/v1/scrape/index", 
+@router.post(
+    "/index", 
     response_model=ScrapeIndexResponse,
     status_code=status.HTTP_200_OK,
-    summary="Extraer índice o listado principal (Nivel 1)",
-    tags=["Scraper"]
+    summary="Extraer índice o listado principal (Nivel 1)"
 )
 async def scrape_index(payload: ScrapeIndexRequest):
     """
     Recibe una URL objetivo, navega mediante Playwright, dispara el auto-scroll
     y extrae la lista de títulos y enlaces o el texto continuo si es un artículo único.
     """
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
     try:
         url_str = str(payload.url)
         resultado = await scraper_indice.scrape(url_str)
@@ -141,21 +108,17 @@ async def scrape_index(payload: ScrapeIndexRequest):
         )
 
 
-@app.post(
-    "/api/v1/scrape/deep", 
+@router.post(
+    "/deep", 
     response_model=DeepScrapeResponse,
     status_code=status.HTTP_200_OK,
-    summary="Extraer contenido completo de novedades (Nivel 2 - Deep Scraping)",
-    tags=["Scraper"]
+    summary="Extraer contenido completo de novedades (Nivel 2 - Deep Scraping)"
 )
 async def scrape_deep(payload: DeepScrapeRequest):
     """
     Recibe una lista de objetos que contienen URLs nuevas y realiza Deep Scraping 
     aislando el texto del artículo con Readability y convirtiéndolo a Markdown limpio.
     """
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
     try:
         items_dict = [{"titulo": item.titulo or "", "url": str(item.url)} for item in payload.items]
         articulos_procesados = await deep_scraper.procesar_novedades_en_profundidad(items_dict)
@@ -171,21 +134,17 @@ async def scrape_deep(payload: DeepScrapeRequest):
         )
 
 
-@app.post(
-    "/api/v1/scrape/full-pipeline",
+@router.post(
+    "/full-pipeline",
     response_model=FullPipelineResponse,
     status_code=status.HTTP_200_OK,
-    summary="Scrapear portada y hacer Deep Scraping automáticamente (Todo en uno)",
-    tags=["Pipeline Completo"]
+    summary="Scrapear portada y hacer Deep Scraping automáticamente (Todo en uno)"
 )
 async def scrape_full_pipeline(payload: FullPipelineRequest):
     """
     Recibe la URL de una portada/índice, obtiene la lista de noticias principales
     y automáticamente realiza Deep Scraping del contenido completo de cada una.
     """
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
     url_str = str(payload.url)
 
     # PASO 1: Extraer el índice de la portada (Nivel 1)
@@ -237,11 +196,3 @@ async def scrape_full_pipeline(payload: FullPipelineRequest):
         "total_procesados_profundidad": len(articulos_completos),
         "articulos": articulos_completos
     }
-
-
-# ==========================================
-# EJECUCIÓN DIRECTA
-# ==========================================
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True, loop="asyncio")

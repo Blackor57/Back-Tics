@@ -1,12 +1,16 @@
 # deep_scraper.py
 import asyncio
 from typing import Dict, Any, List
+# pyrefly: ignore [missing-import]
 from bs4 import BeautifulSoup
+# pyrefly: ignore [missing-import]
 from readability import Document
-from playwright.sync_api import sync_playwright  # <-- Cambio a sync_playwright
+# pyrefly: ignore [missing-import]
+from playwright.sync_api import sync_playwright
 
-from config import BROWSER_VIEWPORT, DEFAULT_USER_AGENT, DEEP_PAGE_TIMEOUT_MS
-from utils import configurar_html2text
+from app.core.config import BROWSER_VIEWPORT, DEFAULT_USER_AGENT, DEEP_PAGE_TIMEOUT_MS
+from app.utils.utils import configurar_html2text
+
 
 class DeepScraperNoAI:
     def __init__(self):
