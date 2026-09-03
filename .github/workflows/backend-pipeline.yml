@@ -1,4 +1,4 @@
-name: Backend CI/CD (Node.js)
+name: Backend CI/CD (Python)
 
 on:
   push:
@@ -8,33 +8,34 @@ on:
 
 jobs:
   ci:
-    name: Test & Build
+    name: Lint & Test
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: 'npm'
+          python-version: '3.11'
 
       - name: Instalar dependencias
-        run: npm ci
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install flake8
 
-      - name: Ejecutar pruebas unitarias
-        run: npm test --if-present
-
-      - name: Compilar Backend
-        run: npm run build --if-present
+      - name: Validar errores de sintaxis en Python
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
   cd:
     name: Deploy
     needs: ci
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+
     steps:
-      - name: Ejecutar despliegue
+      - name: Despliegue automático
         run: echo 
