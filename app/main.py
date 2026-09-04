@@ -11,22 +11,39 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from app.api.v1.endpoint import router as scrape_router
+from app.api.v1.auth import router as auth_router
+from app.api.v1.tracking import router as tracking_router
+from app.core.database import init_db
+from app.services.monitor_scheduler import MonitorScheduler
 
 # =========================================================
 # CONFIGURACIÓN DEL EVENT LOOP EN WINDOWS (LIFESPAN)
 # =========================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Forzar la política de ProactorEventLoop en Windows al arrancar el servidor
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    yield
+    # Política de event loop en Windows si es menor a Python 3.14
+    if sys.platform == 'win32' and sys.version_info < (3, 14):
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        except Exception:
+            pass
+    
+    # Inicializar tablas en PostgreSQL
+    await init_db()
+
+    # Iniciar el motor de monitoreo continuo en segundo plano
+    await MonitorScheduler.iniciar()
+
+    try:
+        yield
+    finally:
+        await MonitorScheduler.detener()
 
 
 app = FastAPI(
-    title="Universal Web Scraper API",
-    description="API REST modular para la extracción de índices y contenido profundo (Deep Scraping) sin IA.",
-    version="1.0.0",
+    title="Universal Web Scraper & Intelligence API",
+    description="API REST modular para scraping universal, gestión de usuarios JWT, monitoreo continuo de páginas con alertas por correo y análisis inteligente con Ollama.",
+    version="2.1.0",
     lifespan=lifespan
 )
 
@@ -45,7 +62,10 @@ app.add_middleware(
 # =========================================================
 # RUTAS Y ENDPOINTS
 # =========================================================
+app.include_router(auth_router, prefix="/api/v1/auth")
+app.include_router(tracking_router, prefix="/api/v1/tracking")
 app.include_router(scrape_router, prefix="/api/v1")
+
 
 
 @app.get("/", tags=["General"])
@@ -69,6 +89,9 @@ async def health_check():
 # EJECUCIÓN DIRECTA
 # =========================================================
 if __name__ == "__main__":
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    if sys.platform == 'win32' and sys.version_info < (3, 14):
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        except Exception:
+            pass
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

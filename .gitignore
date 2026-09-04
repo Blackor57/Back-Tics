@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Ambientes virtuales
+venv/
+env/
+.venv/
+ENV/
+
+# Variables de entorno con credenciales
+.env
+.env.local
+
+# Archivos temporales de pruebas y reportes generados
+scratch/
+reports/*.xlsx
+reports/*.docx
+reports/charts/*.png
+!reports/.gitkeep
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Pruebas y cobertura
+.pytest_cache/
+.coverage
+htmlcov/

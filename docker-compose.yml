@@ -1,6 +1,9 @@
 version: '3.8'
 
 services:
+  # =========================================================
+  # MICROSERVICIO 4: PERSISTENCIA (POSTGRESQL 16)
+  # =========================================================
   db:
     image: postgres:16-alpine
     container_name: simap_postgres
@@ -14,7 +17,40 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - simap_net
 
+  # =========================================================
+  # MICROSERVICIO 3: INTELIGENCIA ARTIFICIAL LOCAL (OLLAMA)
+  # =========================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: simap_ollama
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - simap_net
+
+  # =========================================================
+  # MICROSERVICIO 2: WORKER DE SCRAPING (PLAYWRIGHT & CHROMIUM)
+  # Aislado en su propio contenedor para proteger memoria y CPU
+  # =========================================================
+  scraper_service:
+    build: ./scraper_service
+    container_name: simap_scraper_service
+    restart: always
+    ports:
+      - "8001:8001"
+    networks:
+      - simap_net
+
+  # =========================================================
+  # MICROSERVICIO 1: CORE API, AUTH & ORQUESTADOR (FASTAPI)
+  # Gestiona Auth JWT, Historial, Programación y Reportes
+  # =========================================================
   backend:
     build: .
     container_name: simap_backend
@@ -22,9 +58,23 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres_password@db:5432/simap_db
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres_password@db:5432/simap_db
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.1:latest
+      SCRAPER_SERVICE_URL: http://scraper_service:8001
+    volumes:
+      - ./reports:/app/reports
     depends_on:
       - db
+      - ollama
+      - scraper_service
+    networks:
+      - simap_net
 
 volumes:
   postgres_data:
+  ollama_data:
+
+networks:
+  simap_net:
+    driver: bridge
