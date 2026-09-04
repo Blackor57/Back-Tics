@@ -1,7 +1,7 @@
 # tests/test_schemas.py
 import unittest
 from pydantic import ValidationError
-from app.schemas.auth import UserCreate, UserLogin
+from app.schemas.auth import UserCreate, UserLogin, ResendVerificationRequest
 from app.schemas.tracking import TrackTargetCreate, TrackTargetUpdate
 
 
@@ -27,6 +27,14 @@ class TestSchemas(unittest.TestCase):
         """Verifica que contraseñas menores a 6 caracteres sean rechazadas."""
         with self.assertRaises(ValidationError):
             UserCreate(email="valido@ejemplo.com", password="12345")
+
+    def test_resend_verification_valid_and_invalid(self):
+        """Verifica la validación y normalización en ResendVerificationRequest."""
+        req = ResendVerificationRequest(email="  MiCorreo@Dominio.COM ")
+        self.assertEqual(req.email, "micorreo@dominio.com")
+
+        with self.assertRaises(ValidationError):
+            ResendVerificationRequest(email="no-es-correo")
 
     def test_track_target_create_valid(self):
         """Verifica la creación correcta de parámetros de seguimiento."""

@@ -13,7 +13,8 @@ from app.core.config import (
     SMTP_USER,
     SMTP_PASSWORD,
     SMTP_FROM_EMAIL,
-    SMTP_TLS
+    SMTP_TLS,
+    APP_BASE_URL
 )
 
 logger = logging.getLogger("email_service")
@@ -218,4 +219,113 @@ class EmailService:
         )
 
         # Ejecutar en threadpool para no congelar el loop de asyncio
+        return await asyncio.to_thread(cls._enviar_correo_sincrono, destinatario, asunto, cuerpo_html)
+
+    @staticmethod
+    def _construir_html_verificacion(
+        nombre_usuario: Optional[str],
+        enlace_verificacion: str
+    ) -> str:
+        saludo = f"Hola <strong>{nombre_usuario}</strong>," if nombre_usuario else "Hola,"
+        fecha_hora = datetime.now().strftime("%d/%m/%Y")
+
+        html = f"""
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Confirmación de Cuenta</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 35px 15px;">
+                <tr>
+                    <td align="center">
+                        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);">
+                            <!-- Header Corporativo con Gradiente -->
+                            <tr>
+                                <td style="padding: 36px 30px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #ffffff; text-align: center;">
+                                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #38bdf8; font-weight: 700; margin-bottom: 10px;">
+                                        SISTEMA INTELIGENTE DE MONITOREO
+                                    </div>
+                                    <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
+                                        ✉️ Confirma tu Cuenta
+                                    </h1>
+                                    <p style="margin: 10px 0 0 0; font-size: 13px; color: #94a3b8;">
+                                        Bienvenido a nuestra plataforma &bull; {fecha_hora}
+                                    </p>
+                                </td>
+                            </tr>
+
+                            <!-- Cuerpo del Mensaje -->
+                            <tr>
+                                <td style="padding: 36px 32px;">
+                                    <p style="font-size: 16px; color: #1e293b; margin-top: 0; line-height: 1.6;">
+                                        {saludo}
+                                    </p>
+                                    <p style="font-size: 15px; color: #475569; line-height: 1.6; margin-bottom: 24px;">
+                                        Gracias por registrarte. Para garantizar la seguridad de tu información y activar todas las funcionalidades de monitoreo, por favor confirma tu dirección de correo electrónico haciendo clic en el siguiente botón:
+                                    </p>
+
+                                    <!-- Botón Principal Interactivo -->
+                                    <div style="text-align: center; margin: 36px 0;">
+                                        <a href="{enlace_verificacion}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 700; padding: 14px 34px; border-radius: 8px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35); letter-spacing: 0.3px;">
+                                            &check; Confirmar Mi Correo
+                                        </a>
+                                    </div>
+
+                                    <!-- Nota de Seguridad / Expiración -->
+                                    <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; border-radius: 4px; padding: 14px 18px; margin: 28px 0;">
+                                        <p style="margin: 0; font-size: 13px; color: #475569; line-height: 1.5;">
+                                            ⏱️ <strong>Aviso de seguridad:</strong> Este enlace de verificación expirará en <strong>24 horas</strong>. Si no logras verificar tu cuenta a tiempo, podrás solicitar un nuevo enlace desde la plataforma.
+                                        </p>
+                                    </div>
+
+                                    <!-- Enlace alternativo si el botón no responde -->
+                                    <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin-top: 24px;">
+                                        ¿El botón no responde? Puedes copiar y pegar el siguiente enlace directamente en tu navegador:
+                                    </p>
+                                    <div style="background-color: #f1f5f9; padding: 10px 14px; border-radius: 6px; word-break: break-all; font-size: 11px; color: #2563eb; font-family: monospace;">
+                                        {enlace_verificacion}
+                                    </div>
+
+                                    <p style="font-size: 12px; color: #94a3b8; line-height: 1.5; margin-top: 28px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+                                        Si tú no has solicitado el registro en nuestra plataforma, no necesitas hacer nada; simplemente ignora este mensaje.
+                                    </p>
+                                </td>
+                            </tr>
+
+                            <!-- Footer -->
+                            <tr>
+                                <td style="padding: 20px 30px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
+                                    <p style="margin: 0; font-size: 12px; color: #94a3b8;">
+                                        Sistema Automatizado de Scraping e Inteligencia de Datos &copy; 2026.
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
+        return html
+
+    @classmethod
+    async def enviar_correo_verificacion(
+        cls,
+        destinatario: str,
+        nombre_usuario: Optional[str],
+        token: str
+    ) -> bool:
+        """
+        Despacha de forma asíncrona el correo de verificación con enlace y botón.
+        """
+        enlace = f"{APP_BASE_URL.rstrip('/')}/api/v1/auth/verify?token={token}"
+        asunto = "🔐 Confirma tu cuenta de correo electrónico"
+        cuerpo_html = cls._construir_html_verificacion(
+            nombre_usuario=nombre_usuario,
+            enlace_verificacion=enlace
+        )
         return await asyncio.to_thread(cls._enviar_correo_sincrono, destinatario, asunto, cuerpo_html)

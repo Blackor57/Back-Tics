@@ -73,4 +73,9 @@ SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in ("true", "1", "yes")
 # =========================================================
 SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://localhost:8001")
 
+# =========================================================
+# URL BASE DE LA APLICACIÓN (ENLACES DE CORREO / VERIFICACIÓN)
+# =========================================================
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
+
 

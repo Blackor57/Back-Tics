@@ -1,6 +1,7 @@
 # database.py
 import logging
 from typing import AsyncGenerator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.core.config import DATABASE_URL
 from app.models.entities import Base
@@ -33,6 +34,10 @@ async def init_db() -> bool:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            try:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;"))
+            except Exception:
+                pass
         logger.info("✅ Conexión con PostgreSQL establecida y tablas verificadas exitosamente.")
         return True
     except Exception as e:

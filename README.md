@@ -73,6 +73,7 @@ graph TD
 - **Seguridad y Control de Acceso**:
   - Autenticación mediante tokens JWT (JSON Web Tokens).
   - Hashing seguro de contraseñas con `bcrypt`.
+  - **Verificación de cuentas por correo**: Envío automático de enlace con botón interactivo estilizado y token JWT firmado con expiración de 24 horas para confirmación segura de existencia del correo.
 
 ---
 
@@ -126,6 +127,7 @@ Backend/
 │   └── iniciar.sh                # Inicio rápido en Linux / macOS
 ├── tests/                        # Suite completa de pruebas con Pytest
 │   ├── test_delta_engine.py      # Pruebas del motor de comparación histórica
+│   ├── test_email_verification.py# Pruebas del flujo y diseño de verificación de correo
 │   ├── test_reporters.py         # Pruebas de generación de Word y Excel
 │   ├── test_schemas.py           # Pruebas de validación de datos
 │   ├── test_scraper_client.py    # Pruebas del cliente HTTP de scraping
@@ -175,9 +177,10 @@ JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
 # =========================================================
-# NOTIFICACIONES POR CORREO (SMTP)
+# NOTIFICACIONES POR CORREO (SMTP) & ENLACES
 # (Si se deja SMTP_HOST vacío, el sistema simula el envío en los logs)
 # =========================================================
+APP_BASE_URL=http://localhost:8000
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=tu_correo@gmail.com
@@ -278,13 +281,45 @@ Una vez iniciado el servidor, accede a la documentación interactiva en:
 | **Reportes** | `GET` | `/api/v1/reports/download/word/{id}` | Descarga de reporte en formato Word (`.docx`) |
 | **Reportes** | `GET` | `/api/v1/reports/list` | Listado histórico de reportes generados |
 | **Snapshots** | `GET` | `/api/v1/snapshots/history` | Historial de capturas de una URL |
-| **Auth** | `POST` | `/api/v1/auth/register` | Registro de nuevo usuario (JWT) |
+| **Auth** | `POST` | `/api/v1/auth/register` | Registro de nuevo usuario (JWT) y despacho de verificación |
+| **Auth** | `GET` | `/api/v1/auth/verify` | Confirmación de correo al hacer clic en el botón del email |
+| **Auth** | `POST` | `/api/v1/auth/resend-verification` | Reenvío de correo de confirmación de cuenta |
 | **Auth** | `POST` | `/api/v1/auth/login` | Inicio de sesión y obtención de token |
 | **Auth** | `GET` | `/api/v1/auth/me` | Datos del usuario autenticado |
 | **Monitoreo** | `POST` | `/api/v1/tracking/start` | Iniciar seguimiento continuo de una URL |
 | **Monitoreo** | `GET` | `/api/v1/tracking/my-targets` | Listar objetivos de seguimiento del usuario |
 | **Monitoreo** | `PATCH` | `/api/v1/tracking/{id}/toggle` | Pausar o reanudar seguimiento |
 | **Monitoreo** | `DELETE` | `/api/v1/tracking/{id}` | Eliminar objetivo de monitoreo |
+
+---
+
+### ✉️ Flujo de Verificación de Cuentas por Correo Electrónico
+
+El sistema incorpora un mecanismo de confirmación de existencia de cuentas mediante correo electrónico:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Usuario
+    participant Core as API (FastAPI)
+    participant DB as PostgreSQL
+    participant SMTP as EmailService (SMTP)
+
+    Usuario->>Core: 1. POST /api/v1/auth/register
+    Core->>DB: 2. Inserta usuario (is_verified = False)
+    Core->>SMTP: 3. Despacha en segundo plano (asyncio task)
+    SMTP-->>Usuario: 4. Correo HTML con botón "Confirmar Mi Correo"
+    Usuario->>Core: 5. Clic en el botón (GET /api/v1/auth/verify?token=...)
+    Core->>Core: 6. Valida firma criptográfica y expiración (24h)
+    Core->>DB: 7. Actualiza is_verified = True
+    Core-->>Usuario: 8. Presenta pantalla estilizada de confirmación exitosa
+```
+
+#### Aspectos Clave de la Implementación:
+1. **Seguridad Stateless (JWT):** No satura la base de datos con tablas temporales de tokens. La validez, expiración y correo van cifrados y firmados con `JWT_SECRET_KEY` bajo el tipo `email_verification`.
+2. **Plantilla HTML Responsiva:** El correo despachado por [`EmailService`](app/services/email_service.py) cuenta con tarjeta corporativa, tipografía moderna, botón de acción destacado con gradiente (`Confirmar Mi Correo`), aviso de expiración y enlace alternativo de texto plano.
+3. **Experiencia de Usuario en Navegador:** Al pulsar el botón desde cualquier cliente de correo (móvil o PC), el endpoint `GET /api/v1/auth/verify` responde directamente con una vista web moderna en modo oscuro confirmando la activación o informando de manera clara si el enlace ha caducado.
+4. **Reenvío Seguro:** Mediante `POST /api/v1/auth/resend-verification`, si un enlace expiró tras las 24 horas, el usuario puede solicitar un nuevo correo ingresando su email registrado.
 
 > [!TIP]
 > Para consultar ejemplos completos de peticiones cURL, payloads JSON y respuestas, revisa [docs/EJEMPLOS.md](docs/EJEMPLOS.md).

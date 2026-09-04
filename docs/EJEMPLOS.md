@@ -244,10 +244,12 @@ El sistema soporta modo **anónimo** (sin autenticación) para scraping y análi
     "nombre_completo": "Juan Pérez",
     "is_active": true,
     "is_superuser": false,
+    "is_verified": false,
     "created_at": "2026-09-03T22:15:00.000000Z"
   }
 }
 ```
+> *Nota: Al registrarse, el sistema envía automáticamente un correo con un botón interactivo para confirmar la existencia del buzón.*
 
 #### B. Inicio de Sesión (`POST /api/v1/auth/login`)
 ```json
@@ -267,6 +269,25 @@ El sistema soporta modo **anónimo** (sin autenticación) para scraping y análi
 
 #### C. Perfil en Sesión (`GET /api/v1/auth/me`)
 - **Headers**: `Authorization: Bearer <access_token>`
+
+#### D. Verificación de Correo por Enlace (`GET /api/v1/auth/verify?token=<token>`)
+- Invocado al hacer clic en el botón del correo.
+- Retorna una página HTML estilizada en modo oscuro confirmando la activación de la cuenta.
+
+#### E. Reenviar Enlace de Confirmación (`POST /api/v1/auth/resend-verification`)
+- **Payload:**
+```json
+{
+  "email": "analista@empresa.com"
+}
+```
+**Respuesta:**
+```json
+{
+  "mensaje": "Se ha enviado un nuevo enlace de confirmación a tu dirección de correo.",
+  "detalle": null
+}
+```
 
 ---
 

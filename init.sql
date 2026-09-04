@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     nombre_completo VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
     is_superuser BOOLEAN DEFAULT FALSE,
+    is_verified BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

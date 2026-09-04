@@ -36,6 +36,7 @@ class UserResponse(BaseModel):
     nombre_completo: Optional[str] = None
     is_active: bool
     is_superuser: bool
+    is_verified: bool = False
     created_at: Optional[datetime] = None
 
     model_config = {
@@ -47,3 +48,21 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(..., description="Correo electrónico registrado para reenviar confirmación", json_schema_extra={"example": "usuario@ejemplo.com"})
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        patron = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+        if not re.match(patron, v):
+            raise ValueError("Formato de correo electrónico inválido.")
+        return v
+
+
+class MessageResponse(BaseModel):
+    mensaje: str
+    detalle: Optional[str] = None

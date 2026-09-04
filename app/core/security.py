@@ -52,6 +52,33 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def create_email_verification_token(email: str, expires_hours: int = 24) -> str:
+    """Genera un JWT firmado para confirmación de correo con expiración en horas."""
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(hours=expires_hours)
+    payload = {
+        "sub": email.strip().lower(),
+        "type": "email_verification",
+        "exp": expire,
+        "iat": now
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def decode_email_verification_token(token: str) -> Optional[str]:
+    """
+    Decodifica y valida un token de verificación de correo electrónico.
+    Retorna el correo electrónico verificado si es válido y no ha expirado, o None en caso de fallo.
+    """
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "email_verification":
+            return None
+        return payload.get("sub")
+    except Exception:
+        return None
+
+
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: AsyncSession = Depends(get_db)

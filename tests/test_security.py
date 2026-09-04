@@ -5,7 +5,9 @@ from app.core.security import (
     hash_password,
     verify_password,
     create_access_token,
-    decode_access_token
+    decode_access_token,
+    create_email_verification_token,
+    decode_email_verification_token
 )
 
 
@@ -55,6 +57,37 @@ class TestSecurity(unittest.TestCase):
 
         decoded = decode_access_token(token_expirado)
         self.assertIsNone(decoded)
+
+    def test_email_verification_token_valid(self):
+        """Verifica que un token de verificación de email se genere y decodifique correctamente."""
+        correo = "nuevo.usuario@empresa.com"
+        token = create_email_verification_token(correo, expires_hours=24)
+
+        self.assertIsInstance(token, str)
+        email_extraido = decode_email_verification_token(token)
+        self.assertEqual(email_extraido, correo)
+
+    def test_email_verification_token_expired(self):
+        """Verifica que un token de verificación expirado retorne None."""
+        correo = "expirado@empresa.com"
+        token = create_email_verification_token(correo, expires_hours=-1)
+
+        email_extraido = decode_email_verification_token(token)
+        self.assertIsNone(email_extraido)
+
+    def test_email_verification_token_tampered(self):
+        """Verifica que un token de verificación adulterado retorne None."""
+        token = create_email_verification_token("test@empresa.com")
+        token_corrupto = token[:-4] + "zzzz"
+
+        email_extraido = decode_email_verification_token(token_corrupto)
+        self.assertIsNone(email_extraido)
+
+    def test_access_token_cannot_be_used_as_email_verification_token(self):
+        """Verifica que un access_token normal no sea aceptado como token de verificación de correo."""
+        token_login = create_access_token({"sub": "100", "email": "hacker@test.com"})
+        email_extraido = decode_email_verification_token(token_login)
+        self.assertIsNone(email_extraido)
 
 
 if __name__ == "__main__":
