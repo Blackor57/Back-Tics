@@ -122,9 +122,10 @@ Backend/
 │   └── QUICK_START.md            # Guía de inicio rápido
 │
 ├── reports/                      # Directorio de almacenamiento temporal de reportes
-├── scripts/                      # Scripts para Windows y Linux
+├── scripts/                      # Scripts para Windows, Linux y diagnóstico
 │   ├── iniciar.bat               # Inicio rápido en Windows
-│   └── iniciar.sh                # Inicio rápido en Linux / macOS
+│   ├── iniciar.sh                # Inicio rápido en Linux / macOS
+│   └── test_smtp.py              # Diagnóstico y prueba de conexión SMTP en vivo
 ├── tests/                        # Suite completa de pruebas con Pytest
 │   ├── test_delta_engine.py      # Pruebas del motor de comparación histórica
 │   ├── test_email_verification.py# Pruebas del flujo y diseño de verificación de correo
@@ -178,16 +179,31 @@ ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
 # =========================================================
 # NOTIFICACIONES POR CORREO (SMTP) & ENLACES
-# (Si se deja SMTP_HOST vacío, el sistema simula el envío en los logs)
 # =========================================================
 APP_BASE_URL=http://localhost:8000
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=tu_correo@gmail.com
-SMTP_PASSWORD=tu_contraseña_de_aplicacion
-SMTP_FROM_EMAIL=notificaciones@simap.com
+SMTP_PASSWORD=abcd efgh ijkl mnop
+SMTP_FROM_EMAIL=tu_correo@gmail.com
 SMTP_TLS=true
 ```
+
+> [!TIP]
+> **Configuración para envíos reales con Gmail:**
+> 1. Activa la **Verificación en dos pasos** en tu cuenta de Google.
+> 2. Dirígete a [Contraseñas de aplicaciones de Google](https://myaccount.google.com/apppasswords) y genera una clave de 16 caracteres para *"SIMAP"*.
+> 3. Coloca esa clave de 16 letras en `SMTP_PASSWORD`.
+> 4. Asegúrate de que `SMTP_FROM_EMAIL` coincida con `SMTP_USER` para evitar bloqueos por políticas antispam (SPF/DKIM).
+>
+> **Modo Simulación (Desarrollo local sin credenciales):**
+> Si dejas `SMTP_HOST` o `SMTP_USER` vacíos, el backend activará automáticamente el modo simulación: no fallará ni enviará correos reales, e imprimirá de manera destacada en la terminal el enlace completo de confirmación generado para que puedas probar el flujo localmente.
+>
+> **Diagnóstico y prueba de conexión SMTP:**
+> Puedes probar tus credenciales y conectividad en vivo en cualquier momento ejecutando:
+> ```bash
+> python scripts/test_smtp.py tu_correo_destino@gmail.com
+> ```
 
 ---
 
@@ -320,6 +336,7 @@ sequenceDiagram
 2. **Plantilla HTML Responsiva:** El correo despachado por [`EmailService`](app/services/email_service.py) cuenta con tarjeta corporativa, tipografía moderna, botón de acción destacado con gradiente (`Confirmar Mi Correo`), aviso de expiración y enlace alternativo de texto plano.
 3. **Experiencia de Usuario en Navegador:** Al pulsar el botón desde cualquier cliente de correo (móvil o PC), el endpoint `GET /api/v1/auth/verify` responde directamente con una vista web moderna en modo oscuro confirmando la activación o informando de manera clara si el enlace ha caducado.
 4. **Reenvío Seguro:** Mediante `POST /api/v1/auth/resend-verification`, si un enlace expiró tras las 24 horas, el usuario puede solicitar un nuevo correo ingresando su email registrado.
+5. **Diagnóstico y Modo Simulación:** Incluye [`scripts/test_smtp.py`](scripts/test_smtp.py) para validar la entrega en tiempo real con proveedores SMTP y fallback automático a modo simulación en consola para desarrollo local ágil sin credenciales.
 
 > [!TIP]
 > Para consultar ejemplos completos de peticiones cURL, payloads JSON y respuestas, revisa [docs/EJEMPLOS.md](docs/EJEMPLOS.md).

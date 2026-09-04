@@ -154,19 +154,42 @@ class EmailService:
         return html
 
     @classmethod
-    def _enviar_correo_sincrono(cls, destinatario: str, asunto: str, cuerpo_html: str) -> bool:
+    def _enviar_correo_sincrono(
+        cls,
+        destinatario: str,
+        asunto: str,
+        cuerpo_html: str,
+        enlace_accion: Optional[str] = None
+    ) -> bool:
         """Lógica síncrona de envío SMTP ejecutada en un threadpool worker."""
         if not SMTP_HOST or not SMTP_USER:
-            logger.info(
-                f"[SIMULACIÓN SMTP] No se ha configurado servidor SMTP en .env. "
-                f"Correo simulado con éxito para '{destinatario}'. Asunto: '{asunto}'"
+            aviso = (
+                f"\n{'='*70}\n"
+                f"  ⚠️ [MODO SIMULACIÓN SMTP - CORREO NO ENVIADO A INTERNET]\n"
+                f"  Motivo: 'SMTP_HOST' o 'SMTP_USER' están vacíos en el archivo .env\n"
+                f"  Para:   {destinatario}\n"
+                f"  Asunto: {asunto}\n"
             )
+            if enlace_accion:
+                aviso += (
+                    f"  --------------------------------------------------------------------\n"
+                    f"  🔗 Enlace de confirmación generado para pruebas locales:\n"
+                    f"  {enlace_accion}\n"
+                    f"  (Abre este enlace en tu navegador para verificar la cuenta)\n"
+                )
+            aviso += f"{'='*70}\n"
+            logger.warning(aviso)
             return True
 
         try:
+            # Remitente: Si no se configuró o es el default, usar SMTP_USER para no ser bloqueado por Gmail/Outlook
+            remitente = SMTP_FROM_EMAIL
+            if not remitente or remitente == "notificaciones@simap.com":
+                remitente = SMTP_USER or remitente
+
             msg = MIMEMultipart("alternative")
             msg["Subject"] = asunto
-            msg["From"] = SMTP_FROM_EMAIL
+            msg["From"] = remitente
             msg["To"] = destinatario
 
             # Adjuntar versión HTML
@@ -184,10 +207,10 @@ class EmailService:
             if SMTP_USER and SMTP_PASSWORD:
                 servidor.login(SMTP_USER, SMTP_PASSWORD)
 
-            servidor.sendmail(SMTP_FROM_EMAIL, [destinatario], msg.as_string())
+            servidor.sendmail(remitente, [destinatario], msg.as_string())
             servidor.quit()
 
-            logger.info(f"Correo de alerta enviado exitosamente a {destinatario}")
+            logger.info(f"Correo enviado exitosamente a {destinatario} vía {SMTP_HOST}")
             return True
 
         except Exception as e:
@@ -328,4 +351,10 @@ class EmailService:
             nombre_usuario=nombre_usuario,
             enlace_verificacion=enlace
         )
-        return await asyncio.to_thread(cls._enviar_correo_sincrono, destinatario, asunto, cuerpo_html)
+        return await asyncio.to_thread(
+            cls._enviar_correo_sincrono,
+            destinatario,
+            asunto,
+            cuerpo_html,
+            enlace
+        )
