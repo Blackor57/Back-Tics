@@ -37,11 +37,11 @@ class OllamaAnalyzer:
         if isinstance(articulos_o_texto, list):
             titulares = [
                 f"- {item.get('titulo', 'Sin título')} (URL: {item.get('url', '')})"
-                for item in articulos_o_texto[:30]
+                for item in articulos_o_texto[:15]
             ]
             datos_texto = "\n".join(titulares)
         else:
-            datos_texto = str(articulos_o_texto)[:4000]
+            datos_texto = str(articulos_o_texto)[:2000]
 
         contexto_delta = ""
         if delta:
@@ -116,8 +116,9 @@ El formato JSON debe tener EXACTAMENTE esta estructura:
             "format": "json",
             "stream": False,
             "options": {
-                "temperature": 0.2,
-                "num_predict": 1800
+                "temperature": 0.1,
+                "num_predict": 650,
+                "num_ctx": 2048
             }
         }
 
