@@ -3,6 +3,7 @@ import unittest
 from pydantic import ValidationError
 from app.schemas.auth import UserCreate, UserLogin, ResendVerificationRequest
 from app.schemas.tracking import TrackTargetCreate, TrackTargetUpdate
+from app.schemas.schemas import ScrapeIndexRequest, FullPipelineRequest, DeepScrapeRequest
 
 
 class TestSchemas(unittest.TestCase):
@@ -65,6 +66,22 @@ class TestSchemas(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             TrackTargetCreate(url="https://rpp.pe/", frecuencia_horas=50)
+
+    def test_scrape_index_request_valid(self):
+        """Verifica la validación de URL en ScrapeIndexRequest."""
+        req = ScrapeIndexRequest(url="https://elcomercio.pe/")
+        self.assertEqual(str(req.url), "https://elcomercio.pe/")
+
+    def test_full_pipeline_request_limit_bounds(self):
+        """Verifica que el límite de noticias en FullPipelineRequest esté entre 1 y 20."""
+        req = FullPipelineRequest(url="https://elcomercio.pe/", limit=10)
+        self.assertEqual(req.limit, 10)
+
+        with self.assertRaises(ValidationError):
+            FullPipelineRequest(url="https://elcomercio.pe/", limit=0)
+
+        with self.assertRaises(ValidationError):
+            FullPipelineRequest(url="https://elcomercio.pe/", limit=25)
 
 
 if __name__ == "__main__":
