@@ -49,7 +49,10 @@ def auto_scroll_pagina_sync(page) -> None:
 
 
 def limpiar_dom_ruido(soup: BeautifulSoup) -> BeautifulSoup:
-    """Remueve etiquetas basura y componentes de interfaz que no contienen información semántica."""
+    """
+    Remueve etiquetas basura y componentes de interfaz que no contienen información semántica:
+    scripts, estilos, banners publicitarios, widgets de cookies, contadores y elementos dinámicos.
+    """
     etiquetas_basura = [
         "script", "style", "nav", "footer", "header", "noscript",
         "iframe", "svg", "form", "aside", "button", "input", "dialog"
@@ -57,12 +60,28 @@ def limpiar_dom_ruido(soup: BeautifulSoup) -> BeautifulSoup:
     for tag in soup(etiquetas_basura):
         tag.decompose()
 
-    # Opcional: Eliminar modales o banners por patrones de clase
+    # Eliminar modales, banners de publicidad o widgets por patrones de clase o id
     patrones_ruido = re.compile(
-        r'(banner|ad-container|cookie|modal|popup|social-share|widget-footer)',
+        r'(banner|ad-container|advertisement|adsbox|sponsor|cookie|consent|modal|popup|social-share|share-buttons|widget-footer|related-posts|trending-bar|contador-visitas|view-counter|fecha-carga|live-update|timestamp-relative)',
         re.IGNORECASE
     )
     for tag in soup.find_all(class_=patrones_ruido):
+        tag.decompose()
+
+    for tag in soup.find_all(id=patrones_ruido):
+        tag.decompose()
+
+    # Eliminar elementos por roles ARIA y atributos de redes publicitarias
+    for tag in soup.find_all(attrs={"role": re.compile(r'^(banner|complementary)$', re.IGNORECASE)}):
+        tag.decompose()
+
+    for tag in soup.find_all(attrs={"aria-modal": "true"}):
+        tag.decompose()
+
+    for tag in soup.find_all(attrs={"data-ad-client": True}):
+        tag.decompose()
+
+    for tag in soup.find_all(attrs={"data-ad-slot": True}):
         tag.decompose()
 
     return soup

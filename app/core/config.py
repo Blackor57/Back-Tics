@@ -20,6 +20,12 @@ DEEP_PAGE_TIMEOUT_MS = 25000
 MAX_SCROLL_HEIGHT_PX = 3000
 
 # =========================================================
+# CONTROL DE CONCURRENCIA DE RECURSOS (RAM / CPU)
+# =========================================================
+MAX_CONCURRENT_BROWSERS = int(os.getenv("MAX_CONCURRENT_BROWSERS", "2"))
+MAX_CONCURRENT_OLLAMA_REQUESTS = int(os.getenv("MAX_CONCURRENT_OLLAMA_REQUESTS", "1"))
+
+# =========================================================
 # CONFIGURACIÓN DE BASE DE DATOS (POSTGRESQL)
 # =========================================================
 # Permite postgresql+asyncpg:// para async con SQLAlchemy

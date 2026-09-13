@@ -2,11 +2,22 @@
 import json
 import re
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
 import httpx
-from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS
+from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS, MAX_CONCURRENT_OLLAMA_REQUESTS
 
 logger = logging.getLogger("uvicorn.error")
+
+_ollama_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def get_ollama_semaphore() -> asyncio.Semaphore:
+    """Retorna un semáforo singleton para limitar peticiones concurrentes a Ollama."""
+    global _ollama_semaphore
+    if _ollama_semaphore is None:
+        _ollama_semaphore = asyncio.Semaphore(MAX_CONCURRENT_OLLAMA_REQUESTS)
+    return _ollama_semaphore
 
 
 class OllamaAnalyzer:
@@ -123,14 +134,15 @@ El formato JSON debe tener EXACTAMENTE esta estructura:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT_SECONDS) as client:
-                res = await client.post(f"{self.base_url}/api/generate", json=payload)
-                res.raise_for_status()
-                data = res.json()
-                raw_response = data.get("response", "{}")
+            async with get_ollama_semaphore():
+                async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT_SECONDS) as client:
+                    res = await client.post(f"{self.base_url}/api/generate", json=payload)
+                    res.raise_for_status()
+                    data = res.json()
+                    raw_response = data.get("response", "{}")
 
-                resultado = self._extraer_json_seguro(raw_response)
-                return self._validar_y_completar_resultado(resultado, delta, site_title)
+                    resultado = self._extraer_json_seguro(raw_response)
+                    return self._validar_y_completar_resultado(resultado, delta, site_title)
         except Exception as e:
             logger.error(f"Error al invocar Ollama ({type(e).__name__}): {str(e)}")
             return self._generar_fallback_heuristico(site_title, articulos_o_texto, delta)

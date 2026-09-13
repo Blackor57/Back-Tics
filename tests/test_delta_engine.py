@@ -65,6 +65,73 @@ class TestDeltaEngine(unittest.TestCase):
         self.assertGreater(delta.get("variacion_caracteres"), 0)
         self.assertGreater(delta.get("total_nuevos"), 0)
 
+    def test_ignorar_parametros_tracking_y_timestamps_en_urls(self):
+        """
+        Verifica que variaciones en parámetros volátiles de URLs (?utm_*, ?t=, ?timestamp=)
+        no generen falsos positivos de novedades ni artículos salientes.
+        """
+        data_anterior = [
+            {"titulo": "Noticia de Economía", "url": "https://rpp.pe/economia/noticia-1?utm_source=home&t=1725000000"},
+            {"titulo": "Noticia de Deportes", "url": "https://rpp.pe/deportes/noticia-2?ref=portada"}
+        ]
+        data_actual = [
+            # Misma noticia con parámetros de tracking y timestamp distintos
+            {"titulo": "Noticia de Economía", "url": "https://rpp.pe/economia/noticia-1?utm_source=twitter&t=1725000999&fbclid=XYZ123"},
+            {"titulo": "Noticia de Deportes", "url": "https://rpp.pe/deportes/noticia-2"}
+        ]
+
+        delta = SnapshotService.calcular_delta(data_anterior, data_actual)
+
+        self.assertEqual(delta.get("total_nuevos"), 0, "No debe marcar falsos positivos de nuevos artículos")
+        self.assertEqual(delta.get("total_salientes"), 0, "No debe marcar falsos positivos de artículos salientes")
+        self.assertEqual(delta.get("total_mantenidos"), 2)
+
+    def test_ignorar_banners_publicitarios(self):
+        """Verifica que banners publicitarios insertados dinámicamente sean descartados del delta."""
+        data_anterior = [
+            {"titulo": "Reforma judicial aprobada", "url": "https://sitio.com/noticia-1"}
+        ]
+        data_actual = [
+            {"titulo": "Reforma judicial aprobada", "url": "https://sitio.com/noticia-1"},
+            {"titulo": "Publicidad: Contrata tu seguro vehicular aquí", "url": "https://googleads.g.doubleclick.net/ad1"},
+            {"titulo": "Patrocinado por Empresa X", "url": "https://sitio.com/ad-2"}
+        ]
+
+        delta = SnapshotService.calcular_delta(data_anterior, data_actual)
+
+        self.assertEqual(delta.get("total_nuevos"), 0, "Banners publicitarios no deben ser reportados como novedades")
+        self.assertEqual(delta.get("total_mantenidos"), 1)
+
+    def test_ignorar_fechas_carga_y_timestamps_dinamicos_texto_continuo(self):
+        """
+        Verifica que textos continuos cuyas únicas diferencias sean marcas de tiempo
+        relativas ('hace X min') o fechas/horas de carga no generen falsos positivos.
+        """
+        texto_anterior = (
+            "COMUNICADO INSTITUCIONAL\n"
+            "El directorio convoca a la asamblea general de accionistas para el presente mes.\n"
+            "Última actualización: hace 5 minutos\n"
+            "Fecha de carga: 06/09/2026 22:00:00\n"
+            "1,250 personas están leyendo esto ahora\n"
+            "Todos los derechos reservados © 2026"
+        )
+
+        texto_actual = (
+            "COMUNICADO INSTITUCIONAL\n"
+            "El directorio convoca a la asamblea general de accionistas para el presente mes.\n"
+            "Última actualización: hace 25 minutos\n"
+            "Fecha de carga: 06/09/2026 22:20:00\n"
+            "1,890 personas están leyendo esto ahora\n"
+            "Todos los derechos reservados © 2026"
+        )
+
+        delta = SnapshotService.calcular_delta(texto_anterior, texto_actual)
+
+        self.assertFalse(delta.get("es_lista"))
+        self.assertEqual(delta.get("total_nuevos"), 0, "Variaciones de tiempo relativo y carga no deben generar falsos positivos")
+        self.assertEqual(delta.get("total_salientes"), 0)
+        self.assertEqual(delta.get("variacion_caracteres"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

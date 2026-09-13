@@ -10,9 +10,11 @@ from playwright.sync_api import sync_playwright
 try:
     from config import BROWSER_VIEWPORT, DEFAULT_USER_AGENT, PAGE_TIMEOUT_MS
     from utils import limpiar_dom_ruido, configurar_html2text, auto_scroll_pagina_sync
+    from stealth_helper import get_stealth_launch_args, get_stealth_context_kwargs, apply_stealth_sync
 except ImportError:
     from .config import BROWSER_VIEWPORT, DEFAULT_USER_AGENT, PAGE_TIMEOUT_MS
     from .utils import limpiar_dom_ruido, configurar_html2text, auto_scroll_pagina_sync
+    from .stealth_helper import get_stealth_launch_args, get_stealth_context_kwargs, apply_stealth_sync
 
 
 class UniversalScraperNoAI:
@@ -53,14 +55,20 @@ class UniversalScraperNoAI:
         return items
 
     def _ejecutar_scrape_sync(self, url: str) -> Dict[str, Any]:
-        """Ejecuta Playwright de forma síncrona en un worker thread."""
+        """Ejecuta Playwright de forma síncrona en un worker thread con ofuscación anti-bot."""
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                viewport=BROWSER_VIEWPORT,
-                user_agent=DEFAULT_USER_AGENT
+            browser = p.chromium.launch(
+                headless=True,
+                args=get_stealth_launch_args()
             )
+            ctx_options = get_stealth_context_kwargs()
+            ctx_options["viewport"] = BROWSER_VIEWPORT
+            if DEFAULT_USER_AGENT:
+                ctx_options["user_agent"] = DEFAULT_USER_AGENT
+
+            context = browser.new_context(**ctx_options)
             page = context.new_page()
+            apply_stealth_sync(page)
             page.route("**/*.{png,jpg,jpeg,svg,gif,css,woff,woff2}", lambda route: route.abort())
 
             try:

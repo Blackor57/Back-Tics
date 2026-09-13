@@ -1,13 +1,23 @@
-# app/services/scraper_client.py
+import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 import httpx
 
-from app.core.config import SCRAPER_SERVICE_URL
+from app.core.config import SCRAPER_SERVICE_URL, MAX_CONCURRENT_BROWSERS
 from app.services.scraper import UniversalScraperNoAI
 from app.services.deep_scraper import DeepScraperNoAI
 
 logger = logging.getLogger("scraper_client")
+
+_local_browser_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def get_local_browser_semaphore() -> asyncio.Semaphore:
+    """Semáforo para limitar la concurrencia de navegadores Playwright en ejecución local de respaldo."""
+    global _local_browser_semaphore
+    if _local_browser_semaphore is None:
+        _local_browser_semaphore = asyncio.Semaphore(MAX_CONCURRENT_BROWSERS)
+    return _local_browser_semaphore
 
 
 class ScraperClient:
@@ -40,7 +50,8 @@ class ScraperClient:
             logger.error(f"Error al comunicar con Scraper Service: {str(e)}. Intentando fallback local...")
 
         # Fallback local
-        return await self._fallback_scraper.scrape(url)
+        async with get_local_browser_semaphore():
+            return await self._fallback_scraper.scrape(url)
 
     async def scrape_deep(self, items: List[Dict[str, str]]) -> Dict[str, Any]:
         """Solicita al microservicio de scraping procesar artículos en profundidad."""
@@ -58,11 +69,12 @@ class ScraperClient:
             logger.error(f"Error en comunicación con Scraper Service: {str(e)}. Usando fallback local...")
 
         # Fallback local
-        articulos = await self._fallback_deep.procesar_novedades_en_profundidad(items)
-        return {
-            "total_procesados": len(articulos),
-            "articulos": articulos
-        }
+        async with get_local_browser_semaphore():
+            articulos = await self._fallback_deep.procesar_novedades_en_profundidad(items)
+            return {
+                "total_procesados": len(articulos),
+                "articulos": articulos
+            }
 
     async def scrape_full_pipeline(self, url: str, limit: int = 5) -> Dict[str, Any]:
         """Solicita al microservicio de scraping la extracción completa de portada + novedades."""
@@ -79,29 +91,30 @@ class ScraperClient:
             logger.error(f"Error en comunicación con Scraper Service: {str(e)}. Usando fallback local...")
 
         # Fallback local
-        indice = await self._fallback_scraper.scrape(url)
-        if indice.get("tipo_contenido") != "lista_entidades":
+        async with get_local_browser_semaphore():
+            indice = await self._fallback_scraper.scrape(url)
+            if indice.get("tipo_contenido") != "lista_entidades":
+                return {
+                    "url_origen": url,
+                    "sitio_titulo": indice.get("site_title", ""),
+                    "total_indexados": 1,
+                    "total_procesados_profundidad": 1,
+                    "articulos": [
+                        {
+                            "url": url,
+                            "titulo_detalle": indice.get("site_title", ""),
+                            "contenido_markdown": indice.get("data", ""),
+                            "caracteres": len(indice.get("data", ""))
+                        }
+                    ]
+                }
+
+            noticias = indice.get("data", [])[:limit]
+            articulos = await self._fallback_deep.procesar_novedades_en_profundidad(noticias)
             return {
                 "url_origen": url,
                 "sitio_titulo": indice.get("site_title", ""),
-                "total_indexados": 1,
-                "total_procesados_profundidad": 1,
-                "articulos": [
-                    {
-                        "url": url,
-                        "titulo_detalle": indice.get("site_title", ""),
-                        "contenido_markdown": indice.get("data", ""),
-                        "caracteres": len(indice.get("data", ""))
-                    }
-                ]
+                "total_indexados": len(indice.get("data", [])),
+                "total_procesados_profundidad": len(articulos),
+                "articulos": articulos
             }
-
-        noticias = indice.get("data", [])[:limit]
-        articulos = await self._fallback_deep.procesar_novedades_en_profundidad(noticias)
-        return {
-            "url_origen": url,
-            "sitio_titulo": indice.get("site_title", ""),
-            "total_indexados": len(indice.get("data", [])),
-            "total_procesados_profundidad": len(articulos),
-            "articulos": articulos
-        }
