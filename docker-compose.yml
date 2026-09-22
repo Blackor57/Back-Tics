@@ -71,6 +71,26 @@ services:
     networks:
       - simap_net
 
+  # =========================================================
+  # MICROSERVICIO 5: ASISTENTE CONVERSACIONAL & VOZ (STREAMLIT + WHISPER)
+  # Interfaz desacoplada para auditoría de datos, prompt engineering y consultas por voz
+  # =========================================================
+  chatbot_service:
+    build: ./chatbot_service
+    container_name: simap_chatbot_service
+    restart: always
+    ports:
+      - "8501:8501"
+    environment:
+      BACKEND_API_URL: http://backend:8000
+      OLLAMA_BASE_URL: http://ollama:11434
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      - backend
+      - ollama
+    networks:
+      - simap_net
+
 volumes:
   postgres_data:
   ollama_data:

@@ -388,3 +388,25 @@ async def list_snapshots(url: str, db: AsyncSession = Depends(get_db)):
         }
         for s in snaps
     ]
+
+
+@router.get(
+    "/snapshots/latest",
+    summary="Consultar las capturas más recientes para auditoría de microservicios"
+)
+async def list_latest_snapshots(limit: int = 10, db: AsyncSession = Depends(get_db)):
+    stmt = select(Snapshot).order_by(Snapshot.created_at.desc()).limit(limit)
+    res = await db.execute(stmt)
+    snaps = res.scalars().all()
+    return [
+        {
+            "id": s.id,
+            "url": s.url,
+            "site_title": s.site_title or s.url,
+            "tipo_contenido": s.tipo_contenido,
+            "total_items": s.total_items,
+            "data": s.data,
+            "created_at": s.created_at.isoformat() if s.created_at else None
+        }
+        for s in snaps
+    ]
