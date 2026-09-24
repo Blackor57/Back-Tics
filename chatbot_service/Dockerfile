@@ -1,5 +1,5 @@
 # chatbot_service/Dockerfile
-# Microservicio 5: Asistente Conversacional y Auditor de Inteligencia Web (Streamlit + Whisper)
+# Microservicio 5: SIMAP Chatbot RAG (FastAPI + Ollama + Redis + pgvector)
 
 FROM python:3.11-slim
 
@@ -8,25 +8,25 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Instalar utilitarios básicos para healthcheck y librerías
+# Herramienta para healthchecks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar requerimientos e instalar dependencias
+# Dependencias Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copiar código del microservicio
+# Código del microservicio (main.py + paquete app/)
 COPY . .
 
-# Puerto expuesto por Streamlit
+# Puerto expuesto por FastAPI
 EXPOSE 8501
 
-# Healthcheck nativo de Streamlit
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+# Healthcheck contra /health
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl --fail http://localhost:8501/health || exit 1
 
-# Arrancar la aplicación Streamlit accesible para la red interna y externa de Docker
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
+# Arranque: Uvicorn con un solo worker (memoria compartida con Ollama)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8501", "--workers", "1", "--log-level", "info"]

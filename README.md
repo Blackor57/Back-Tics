@@ -25,10 +25,14 @@ El sistema implementa una arquitectura desacoplada y orientada a microservicios 
 ```mermaid
 graph TD
     Client["Cliente Web / Frontend (Repo Externo)"] -->|HTTP :8000| Core["1. Core Backend & Orquestador\n(FastAPI)"]
-    
+
     Core -->|HTTP :8001| Scraper["2. Worker de Scraping\n(Playwright + Chromium)"]
     Core -->|HTTP :11434| Ollama["3. IA Local\n(Ollama - LLaMA 3.1)"]
     Core -->|TCP :5432| DB[("4. Base de Datos\n(PostgreSQL 16)")]
+    Chatbot["5. Chatbot RAG\n(FastAPI)"] -->|HTTP :11434| Ollama
+    Chatbot -->|TCP :5432| DB
+    Chatbot -->|TCP :6379| Redis[("Redis\n(Memoria de Conversación)")]
+    Frontend["Frontend React\n(ChatWidget)"] -->|HTTP :8501| Chatbot
     
     Scraper -->|Renderiza & Extrae| Web["Internet / Páginas Web"]
     Core -->|Genera Reportes| Reports["Almacén de Reportes\n(.xlsx / .docx)"]
@@ -50,8 +54,13 @@ graph TD
    - Funciones: Inferencia semántica 100% local y privada. Clasifica noticias en categorías, analiza polaridad de sentimientos, detecta entidades y genera resúmenes ejecutivos sin enviar datos a APIs externas.
 
 4. **`simap_postgres` (Persistencia Relacional - Puerto 5432)**:
-   - Motor: **PostgreSQL 16 Alpine**.
-   - Funciones: Persistencia de usuarios (`users`), instantáneas web (`snapshots`), URLs en monitoreo continuo (`tracked_targets`) y metadatos de reportes (`analysis_reports`). Inicializado automáticamente con [`init.sql`](init.sql).
+   - Motor: **PostgreSQL 16 Alpine** + **pgvector** (búsqueda semántica).
+   - Funciones: Persistencia de usuarios (`users`), instantáneas web (`snapshots`), URLs en monitoreo continuo (`monitored_targets`), metadatos de reportes (`analysis_reports`), y el esquema RAG del chatbot (`pages`, `changes`, `alerts`, `embeddings`). Inicializado automáticamente con [`init.sql`](init.sql).
+
+5. **`simap_chatbot` (Chatbot RAG - Puerto 8501)**:
+   - Framework: **FastAPI** + **SSE (Server-Sent Events)** en streaming.
+   - Funciones: Clasifica la intención de la consulta (router), genera **text-to-SQL** sobre el esquema de monitoreo **o** recupera contexto con **pgvector** (embeddings `nomic-embed-text`), redacta la respuesta final con Ollama y mantiene **memoria conversacional en Redis** (`session_id`).
+   - Frontend: widget React flotante (`/Front-Tics`) que consume el endpoint SSE y renderiza la respuesta en Markdown.
 
 ---
 
@@ -306,6 +315,49 @@ Una vez iniciado el servidor, accede a la documentación interactiva en:
 | **Monitoreo** | `GET` | `/api/v1/tracking/my-targets` | Listar objetivos de seguimiento del usuario |
 | **Monitoreo** | `PATCH` | `/api/v1/tracking/{id}/toggle` | Pausar o reanudar seguimiento |
 | **Monitoreo** | `DELETE` | `/api/v1/tracking/{id}` | Eliminar objetivo de monitoreo |
+| **Chatbot** | `POST` | `/chat?session_id=...` | Consulta conversacional RAG (SSE/streaming: `intent` → `source` → `token`/`done`) |
+| **Chatbot** | `GET` | `/health` | Estado del chatbot y disponibilidad de Ollama / Redis / Postgres |
+| **Chatbot** | `GET` | `/` | Raíz: nombre del servicio y modelos configurados |
+| **Chatbot** | `POST` | `/admin/sync-from-snapshots` | Ingestion: vuelca `snapshots` → `pages`/`changes`/`alerts` (idempotente) |
+| **Chatbot** | `POST` | `/admin/backfill-embeddings` | Genera embeddings `nomic-embed-text` para cambios sin vector (pgvector) |
+| **Chatbot** | `POST` | `/session/{id}/clear` | Borra la memoria conversacional de una sesión en Redis |
+
+---
+
+### 🤖 Chatbot RAG (Microservicio 5) - `chatbot_service/`
+
+Chatbot conversacional que combina **text-to-SQL** + **búsqueda semántica pgvector** + **redacción con Ollama** + **memoria Redis**, para responder preguntas en lenguaje natural sobre el contenido monitoreado.
+
+#### Variables de Entorno (adicionales al `.env`):
+
+```env
+OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_CHAT_MODEL=qwen2.5:3b          # Modelo de chat/redacción
+OLLAMA_EMBED_MODEL=nomic-embed-text   # Modelo de embeddings (768 dims)
+OLLAMA_KEEP_ALIVE=5m
+REDIS_URL=redis://redis:6379/0
+EMBEDDINGS_DIM=768
+SQL_TOP_K=25
+VECTOR_TOP_K=12
+```
+
+**Modelos a descargar en Ollama (una sola vez):**
+```bash
+docker exec simap_ollama ollama pull qwen2.5:3b
+docker exec simap_ollama ollama pull nomic-embed-text
+```
+
+#### Ejecución local (fuera de Docker):
+
+```bash
+cd chatbot_service
+python -m venv .venv
+# Windows: .venv\Scripts\activate   |   Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8501 --reload
+```
+
+> TIP: El chatbot espera que el esquema RAG (`pages`, `changes`, `alerts`, `embeddings` con pgvector) ya exista. Se inicializa automáticamente al arrancar el microservicio (idempotente, vía `app.database.ensure_schema()`).
 
 ---
 
