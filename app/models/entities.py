@@ -111,3 +111,24 @@ class MonitoredTarget(Base):
     # Relaciones
     user = relationship("User", back_populates="monitoreos")
 
+
+class AgentEvent(Base):
+    """
+    Registro de eventos generados por el Agente de Monitoreo Autónomo
+    (function calling con Ollama): cambios críticos, correos enviados,
+    eventos registrados en Google Sheets y transcripciones de sesiones.
+    """
+    __tablename__ = "agent_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    tipo_evento = Column(String(80), nullable=False, default="evento_generico")
+    titulo = Column(String(300), nullable=True)
+    descripcion = Column(Text, nullable=True)
+    url_fuente = Column(String, nullable=True)
+    nivel_prioridad = Column(String(20), nullable=True, default="BAJO")
+    canal = Column(String(40), nullable=True, default="sistema")  # email | sheets | ambos | sistema
+    razon_ia = Column(Text, nullable=True)
+    metadatos = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+

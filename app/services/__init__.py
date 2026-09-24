@@ -9,6 +9,10 @@ from app.services.scraper_client import ScraperClient
 from app.services.chart_generator import ChartGenerator
 from app.services.word_reporter import WordReporter
 from app.services.excel_reporter import ExcelReporter
+from app.services.rag_assistant import RagAssistant
+from app.services.media_transcriber import MediaTranscriber
+from app.services.google_sheets_client import GoogleSheetsClient
+from app.services.monitoring_agent import MonitoringAgent
 
 __all__ = [
     "EmailService",
@@ -19,4 +23,8 @@ __all__ = [
     "ChartGenerator",
     "WordReporter",
     "ExcelReporter",
+    "RagAssistant",
+    "MediaTranscriber",
+    "GoogleSheetsClient",
+    "MonitoringAgent",
 ]

@@ -358,3 +358,103 @@ class EmailService:
             cuerpo_html,
             enlace
         )
+
+    @staticmethod
+    def _construir_html_automatizado(
+        asunto: str,
+        mensaje: str,
+        url_fuente: Optional[str] = None,
+        metadatos: Optional[str] = None,
+    ) -> str:
+        """HTML ejecutivo para los mensajes generados por el Agente de Monitorio Autónomo."""
+        fecha_hora = datetime.now().strftime("%d/%m/%Y a las %H:%M")
+        tarjeta_url = ""
+        if url_fuente:
+            tarjeta_url = f"""
+            <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 4px; margin: 18px 0; word-break: break-all;">
+                <span style="font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase;">Fuente Detectada:</span><br>
+                <a href="{url_fuente}" target="_blank" style="color: #2563eb; font-size: 14px; text-decoration: none; font-weight: 500;">
+                    {url_fuente}
+                </a>
+            </div>
+            """
+        bloque_metadatos = ""
+        if metadatos:
+            bloque_metadatos = f"""
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin: 20px 0;">
+                <h3 style="margin: 0 0 6px 0; font-size: 13px; color: #166534;">🤖 Análisis del Agente IA</h3>
+                <p style="margin: 0; font-size: 13px; color: #14532d; line-height: 1.5;">
+                    {metadatos}
+                </p>
+            </div>
+            """
+
+        return f"""
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{asunto}</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 30px 15px;">
+                <tr>
+                    <td align="center">
+                        <table role="presentation" width="100%" style="max-width: 620px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);">
+                            <tr>
+                                <td style="padding: 28px 30px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #ffffff;">
+                                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #38bdf8; font-weight: 700; margin-bottom: 8px;">
+                                        SISTEMA DE MONITOREO AUTÓNOMO
+                                    </div>
+                                    <h1 style="margin: 0; font-size: 21px; font-weight: 800; color: #ffffff;">🤖 Alerta Automatizada del Agente IA</h1>
+                                    <p style="margin: 8px 0 0 0; font-size: 13px; color: #94a3b8;">Generado el {fecha_hora}</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 28px 30px;">
+                                    <p style="font-size: 15px; color: #334155; line-height: 1.6; margin-top: 0;">{mensaje}</p>
+                                    {tarjeta_url}
+                                    {bloque_metadatos}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 18px 30px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
+                                    <p style="margin: 0; font-size: 12px; color: #94a3b8;">
+                                        Agente de Monitoreo Autónomo SIMAP &copy; 2026.
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
+
+    @classmethod
+    async def enviar_mensaje_automatizado(
+        cls,
+        destinatario: str,
+        asunto: str,
+        mensaje: str,
+        url_fuente: Optional[str] = None,
+        metadatos: Optional[str] = None,
+    ) -> bool:
+        """
+        Envía un correo generado automáticamente por el Agente de Monitoreo
+        (Ollama function calling). Reutiliza la infraestructura SMTP existente.
+        """
+        cuerpo_html = cls._construir_html_automatizado(
+            asunto=asunto,
+            mensaje=mensaje,
+            url_fuente=url_fuente,
+            metadatos=metadatos,
+        )
+        return await asyncio.to_thread(
+            cls._enviar_correo_sincrono,
+            destinatario,
+            asunto,
+            cuerpo_html,
+        )

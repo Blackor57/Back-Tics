@@ -18,4 +18,9 @@ pyjwt>=2.8.0
 bcrypt>=4.1.0
 python-multipart>=0.0.9
 streamlit>=1.35.0
-openai>=1.30.0
+openai>=1.30.0
+
+# --- SIMAP AI (RAG, Transcripción y Agente autónomo) ---
+faster-whisper>=1.0.0
+yt-dlp>=2024.8.6
+gspread>=6.0.0

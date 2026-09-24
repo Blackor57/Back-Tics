@@ -51,6 +51,10 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:latest")
 OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "180.0"))
 
+# Modelo de embeddings para RAG (si no está instalado, usa el modelo principal)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", OLLAMA_MODEL)
+EMBEDDING_TIMEOUT_SECONDS = float(os.getenv("EMBEDDING_TIMEOUT_SECONDS", "60.0"))
+
 # =========================================================
 # DIRECTORIO DE REPORTES
 # =========================================================
@@ -83,5 +87,35 @@ SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://localhost:8001")
 # URL BASE DE LA APLICACIÓN (ENLACES DE CORREO / VERIFICACIÓN)
 # =========================================================
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
+
+# =========================================================
+# AUTOMATIZACIÓN: CORREO ADMINISTRADOR (AGENTE DE MONITOREO)
+# =========================================================
+ADMIN_ALERT_EMAIL = os.getenv("ADMIN_ALERT_EMAIL", os.getenv("SMTP_USER", ""))
+
+# =========================================================
+# AUTOMATIZACIÓN: GOOGLE SHEETS (gspread)
+# =========================================================
+# Credenciales de service account: ruta a un JSON descargado de Google Cloud
+GOOGLE_SHEETS_CREDENTIALS_PATH = os.getenv("GOOGLE_SHEETS_CREDENTIALS_PATH", "")
+# Alternativa: contenido JSON directo en la variable de entorno
+GOOGLE_SHEETS_CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+GOOGLE_SHEETS_SPREADSHEET_NAME = os.getenv("GOOGLE_SHEETS_SPREADSHEET_NAME", "SIMAP Eventos")
+GOOGLE_SHEETS_WORKSHEET_NAME = os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME", "Eventos")
+
+# =========================================================
+# TRANSCRIPCIÓN DE MEDIOS (faster-whisper)
+# =========================================================
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
+WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "es")
+MEDIA_DOWNLOADS_DIR = Path(os.getenv("MEDIA_DOWNLOADS_DIR", str(BASE_DIR / "media_downloads")))
+MEDIA_DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# =========================================================
+# AGENTE DE MONITOREO AUTÓNOMO (FUNCTION CALLING VÍA OLLAMA)
+# =========================================================
+AGENT_MAX_ITERATIONS = int(os.getenv("AGENT_MAX_ITERATIONS", "3"))
 
 

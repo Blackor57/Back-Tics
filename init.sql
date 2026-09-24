@@ -68,5 +68,21 @@ CREATE TABLE IF NOT EXISTS monitored_targets (
 CREATE INDEX IF NOT EXISTS idx_monitored_targets_user_id ON monitored_targets(user_id);
 CREATE INDEX IF NOT EXISTS idx_monitored_targets_activo ON monitored_targets(activo);
 
+CREATE TABLE IF NOT EXISTS agent_events (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    tipo_evento VARCHAR(80) DEFAULT 'evento_generico',
+    titulo VARCHAR(300),
+    descripcion TEXT,
+    url_fuente TEXT,
+    nivel_prioridad VARCHAR(20),
+    canal VARCHAR(40) DEFAULT 'sistema',
+    razon_ia TEXT,
+    metadatos JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at DESC);
+
 
 
