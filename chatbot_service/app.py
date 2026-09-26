@@ -163,7 +163,7 @@ def transcribir_audio_con_gemini(audio_bytes: bytes, mime_type: str, api_key: st
     """Transcribe audio usando la API multimodal de Google Gemini sin requerir OpenAI ni Whisper."""
     try:
         b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={api_key}"
         payload = {
             "contents": [{
                 "parts": [
@@ -215,12 +215,12 @@ with st.sidebar:
             "Gemini API Key:",
             value=DEFAULT_GEMINI_KEY,
             type="password",
-            placeholder="AIzaSy...",
+            placeholder="AQ.Ab8...",
             help="Clave de API de Google Gemini para inferencia del chatbot."
         )
         modelo_seleccionado = st.selectbox(
             "Modelo Gemini:",
-            ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"],
+            ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"],
             index=0
         )
         if api_key:
