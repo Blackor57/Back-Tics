@@ -1,19 +1,20 @@
 # chatbot_service/app.py
 """
-🕷️ Universal Web Intelligence - Microservicio de Chatbot Auditor & Voz (Whisper)
+🕷️ Universal Web Intelligence - Microservicio de Chatbot Auditor & Voz
 Microservicio 5 de la arquitectura SIMAP.
-Consume el Core API (Microservicio 1), Ollama (Microservicio 3) y la API de OpenAI / Whisper.
+Consume el Core API (Microservicio 1), Google Gemini API y Ollama (Microservicio 3).
 """
 
 import os
 import sys
 import json
+import base64
 import httpx
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 import streamlit as st
 from openai import OpenAI
@@ -23,7 +24,7 @@ from openai import OpenAI
 # =====================================================================
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000").rstrip("/")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-DEFAULT_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+DEFAULT_GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # =====================================================================
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS
@@ -158,6 +159,39 @@ def solicitar_scraping_en_vivo(api_url: str, target_url: str) -> Optional[Dict[s
         st.error(f"Error al comunicar con Core API ({api_url}): {str(e)}")
     return None
 
+def transcribir_audio_con_gemini(audio_bytes: bytes, mime_type: str, api_key: str) -> Optional[str]:
+    """Transcribe audio usando la API multimodal de Google Gemini sin requerir OpenAI ni Whisper."""
+    try:
+        b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": "Transcribe exactamente las palabras dichas en este audio al español. Responde única y exclusivamente con el texto transcrito, sin explicaciones ni comillas."},
+                    {
+                        "inline_data": {
+                            "mime_type": mime_type,
+                            "data": b64_audio
+                        }
+                    }
+                ]
+            }]
+        }
+        res = httpx.post(url, json=payload, timeout=30.0)
+        if res.status_code == 200:
+            data = res.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                for p in parts:
+                    if "text" in p:
+                        return p["text"].strip()
+        else:
+            st.error(f"Error de Gemini al transcribir ({res.status_code}): {res.text}")
+    except Exception as e:
+        st.error(f"Error al procesar audio con Gemini: {str(e)}")
+    return None
+
 # =====================================================================
 # BARRA LATERAL: CONFIGURACIÓN DE MICROSERVICIOS Y MODELOS
 # =====================================================================
@@ -167,32 +201,37 @@ with st.sidebar:
     
     proveedor = st.radio(
         "Proveedor del LLM:",
-        ["OpenAI (GPT API)", "Ollama (Microservicio Local)"],
+        ["Google Gemini (Recomendado)", "Ollama (Microservicio Local)"],
         index=0,
-        help="Cumple con la rúbrica docente de OpenAI y permite alternar a Ollama local."
+        help="Google Gemini es el motor principal activo. También puedes alternar a Ollama local."
     )
     
-    api_key = DEFAULT_OPENAI_KEY
+    api_key = DEFAULT_GEMINI_KEY
     client: Optional[OpenAI] = None
     modelo_seleccionado = ""
     
-    if proveedor == "OpenAI (GPT API)":
+    if proveedor == "Google Gemini (Recomendado)":
         api_key = st.text_input(
-            "OpenAI API Key:",
-            value=api_key,
+            "Gemini API Key:",
+            value=DEFAULT_GEMINI_KEY,
             type="password",
-            placeholder="sk-proj-...",
-            help="Ingresa tu clave de OpenAI para usar GPT y Whisper."
+            placeholder="AIzaSy...",
+            help="Clave de API de Google Gemini para inferencia del chatbot."
         )
         modelo_seleccionado = st.selectbox(
-            "Modelo OpenAI:",
-            ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
+            "Modelo Gemini:",
+            ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"],
             index=0
         )
         if api_key:
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                api_key=api_key
+            )
+            st.markdown(f'<span class="badge-tag badge-success">🟢 Gemini Conectado ({modelo_seleccionado})</span>', unsafe_allow_html=True)
         else:
-            st.info("💡 Ingresa tu OpenAI API Key para chatear y transcribir con Whisper.")
+            st.info("💡 Ingresa tu Gemini API Key para chatear.")
+
     else:
         ollama_endpoint = st.text_input("URL de Ollama:", value=OLLAMA_BASE_URL)
         modelos_locales = consultar_modelos_ollama(ollama_endpoint)
@@ -279,8 +318,8 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # 3. Transcripción de Audio con Whisper (Rúbrica de Whisper)
-    st.markdown("### 🎙️ Comandos por Voz (Whisper)")
+    # 3. Transcripción de Audio por Voz (Google Gemini Multimodal)
+    st.markdown("### 🎙️ Comandos por Voz")
     st.caption("Graba tu voz o sube un audio para consultar al bot.")
     
     audio_transcrito_prompt = None
@@ -291,23 +330,21 @@ with st.sidebar:
     audio_seleccionado = mic_audio or archivo_audio
     
     if audio_seleccionado is not None:
-        if st.button("Transcribir con Whisper 🎧", use_container_width=True):
-            if not api_key:
-                st.error("Se requiere OpenAI API Key en la barra lateral para utilizar Whisper.")
+        if st.button("Transcribir Audio con Gemini 🎧", use_container_width=True):
+            if not api_key or proveedor != "Google Gemini (Recomendado)":
+                st.error("Se requiere Gemini API Key en la barra lateral para transcribir audio.")
             else:
                 try:
-                    with st.spinner("Procesando audio con OpenAI Whisper API..."):
-                        whisper_client = OpenAI(api_key=api_key)
-                        nombre_archivo = getattr(audio_seleccionado, "name", "grabacion.wav")
-                        transcripcion = whisper_client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=(nombre_archivo, audio_seleccionado.read())
-                        )
-                        audio_transcrito_prompt = transcripcion.text
-                        st.success("Transcripción completada con éxito!")
-                        st.info(f'"{audio_transcrito_prompt}"')
+                    with st.spinner("Transcribiendo audio con Google Gemini..."):
+                        audio_bytes = audio_seleccionado.read()
+                        mime_type = getattr(audio_seleccionado, "type", "audio/wav") or "audio/wav"
+                        texto_transcrito = transcribir_audio_con_gemini(audio_bytes, mime_type, api_key)
+                        if texto_transcrito:
+                            audio_transcrito_prompt = texto_transcrito
+                            st.success("¡Transcripción completada con éxito!")
+                            st.info(f'"{audio_transcrito_prompt}"')
                 except Exception as e:
-                    st.error(f"Error en Whisper: {str(e)}")
+                    st.error(f"Error en transcripción: {str(e)}")
 
     st.markdown("---")
     if st.button("🧹 Limpiar Historial de Chat", use_container_width=True):
@@ -424,8 +461,8 @@ if prompt_final:
         message_placeholder = st.empty()
         full_response = ""
         
-        if proveedor == "OpenAI (GPT API)" and not api_key:
-            error_msg = "⚠️ **OpenAI API Key requerida**: Por favor, ingresa tu clave de OpenAI en la barra lateral para poder interactuar con GPT."
+        if proveedor == "Google Gemini (Recomendado)" and not api_key:
+            error_msg = "⚠️ **Gemini API Key requerida**: Por favor, ingresa tu clave de Google Gemini en la barra lateral para poder interactuar."
             message_placeholder.markdown(error_msg)
             st.session_state.messages.append({"role": "assistant", "content": error_msg})
         elif client is None:
@@ -459,6 +496,6 @@ if prompt_final:
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
                 
             except Exception as e:
-                err_text = f"❌ **Error al consultar el modelo ({modelo_seleccionado}):**\n`{str(e)}`\n\n*Si estás usando Ollama, verifica que esté corriendo en tu equipo (`ollama serve`) o dentro del contenedor.*"
+                err_text = f"❌ **Error al consultar el modelo ({modelo_seleccionado}):**\n`{str(e)}`\n\n*Si estás usando Google Gemini, verifica tu API Key. Si estás usando Ollama, verifica que esté corriendo en tu equipo (`ollama serve`) o dentro del contenedor.*"
                 message_placeholder.markdown(err_text)
                 st.session_state.messages.append({"role": "assistant", "content": err_text})
