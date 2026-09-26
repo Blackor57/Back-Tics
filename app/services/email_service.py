@@ -215,6 +215,14 @@ class EmailService:
 
         except Exception as e:
             logger.error(f"Error al enviar correo SMTP a {destinatario}: {str(e)}")
+            if enlace_accion:
+                print(
+                    f"\n{'='*70}\n"
+                    f"  ⚠️ [AVISO SIMAP] Falló el despacho SMTP a {destinatario} ({str(e)}).\n"
+                    f"  🔗 Enlace directo de verificación generado:\n"
+                    f"  {enlace_accion}\n"
+                    f"{'='*70}\n"
+                )
             return False
 
     @classmethod

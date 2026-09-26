@@ -25,6 +25,7 @@ from openai import OpenAI
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000").rstrip("/")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 DEFAULT_GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 # =====================================================================
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS
@@ -33,42 +34,58 @@ st.set_page_config(
     page_title="SIMAP - Chatbot Auditor de Inteligencia Web",
     page_icon="🕷️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 st.markdown("""
 <style>
+    /* Ocultar barra lateral y botón de expansión por completo */
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"],
+    section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+    .stApp > header {
+        display: none !important;
+    }
+    .block-container {
+        padding-top: 0.8rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        max-width: 100% !important;
+    }
     .main-header {
-        font-size: 2.1rem;
+        font-size: 1.3rem;
         font-weight: 700;
         background: linear-gradient(90deg, #4f46e5, #06b6d4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.1rem;
     }
     .sub-header {
-        font-size: 0.95rem;
+        font-size: 0.78rem;
         color: #94a3b8;
-        margin-bottom: 1.2rem;
+        margin-bottom: 0.5rem;
     }
     .context-card {
-        background-color: rgba(30, 41, 59, 0.7);
+        background-color: rgba(30, 41, 59, 0.75);
         border: 1px solid rgba(148, 163, 184, 0.2);
         border-radius: 10px;
-        padding: 12px 18px;
-        margin-bottom: 15px;
+        padding: 8px 12px;
+        margin-bottom: 10px;
     }
     .badge-tag {
         display: inline-block;
         background: #1e293b;
         color: #38bdf8;
         border: 1px solid #38bdf8;
-        padding: 2px 10px;
+        padding: 2px 8px;
         border-radius: 12px;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         font-weight: 600;
-        margin-right: 6px;
-        margin-top: 4px;
+        margin-right: 5px;
+        margin-top: 2px;
     }
     .badge-warning {
         background: #451a03;
@@ -80,83 +97,46 @@ st.markdown("""
         color: #34d399;
         border: 1px solid #059669;
     }
+    .badge-neutral {
+        background: #334155;
+        color: #cbd5e1;
+        border: 1px solid #475569;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# DATOS DE RESPALDO / DEMOSTRACIÓN
+# COMUNICACIÓN CON CORE API (REST HTTPX)
 # =====================================================================
-SAMPLE_SCRAPED_DATA = {
-    "url": "https://www.gob.pe/noticias-minem",
-    "site_title": "Ministerio de Energía y Minas - Portal Institucional",
-    "fecha_captura": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    "tipo": "Portal Institucional / Noticias",
-    "items": [
-        {
-            "titulo": "MINEM aprueba nuevo cronograma de transición energética y subsidios solares",
-            "url": "https://www.gob.pe/noticias/minem-transicion-energetica",
-            "resumen": "Se asigna un fondo extraordinario de 150 millones para la electrificación rural mediante paneles solares. Las empresas distribuidoras tendrán 90 días para adaptarse a los nuevos estándares.",
-            "fecha": "2026-09-20"
-        },
-        {
-            "titulo": "Conflictos sociales en corredor minero del sur reducen despacho de cobre en un 12%",
-            "url": "https://www.gob.pe/noticias/minem-corredor-minero-alerta",
-            "resumen": "Comunidades locales bloquean el tramo del kilómetro 45 exigiendo adelanto de canon y remediación ambiental. El ministerio convoca a mesa de diálogo de urgencia.",
-            "fecha": "2026-09-21"
-        },
-        {
-            "titulo": "Actualización de tarifas eléctricas industriales entrará en vigencia a fin de mes",
-            "url": "https://www.gob.pe/noticias/minem-tarifas-electricas",
-            "resumen": "Osinergmin y Minem comunican un ajuste promedio del 3.4% en tarifas industriales debido al incremento de costos en transmisión en alta tensión.",
-            "fecha": "2026-09-21"
-        },
-        {
-            "titulo": "Convocatoria pública para auditoría externa de concesiones de hidrocarburos",
-            "url": "https://www.gob.pe/noticias/minem-licitacion-hidrocarburos",
-            "resumen": "Plazo límite de postulación vence en 15 días calendario. Se auditarán los contratos de explotación vigentes entre 2020 y 2025.",
-            "fecha": "2026-09-19"
-        }
-    ]
-}
-
-# =====================================================================
-# COMUNICACIÓN CON OTROS MICROSERVICIOS (REST HTTPX)
-# =====================================================================
-@st.cache_data(ttl=20)
-def consultar_snapshots_backend(api_url: str) -> List[Dict[str, Any]]:
-    """Consulta los últimos snapshots al Microservicio Core API (FastAPI)."""
+def consultar_contexto_activo_backend(api_url: str, sid: str) -> Optional[Dict[str, Any]]:
+    """Consulta el scraping activo para la sesión actual (Modo Invitado / En Vivo)."""
+    if not sid:
+        return None
     try:
-        url = f"{api_url}/api/v1/snapshots/latest"
-        resp = httpx.get(url, timeout=3.0)
-        if resp.status_code == 200:
-            return resp.json()
-    except Exception:
-        pass
-    return []
-
-@st.cache_data(ttl=20)
-def consultar_modelos_ollama(base_url: str) -> List[str]:
-    """Consulta los modelos disponibles al Microservicio de Ollama."""
-    try:
-        url = f"{base_url}/api/tags"
-        resp = httpx.get(url, timeout=2.0)
+        url = f"{api_url}/api/v1/chat/active-context/{sid}"
+        resp = httpx.get(url, timeout=3.5)
         if resp.status_code == 200:
             data = resp.json()
-            return [m.get("name") for m in data.get("models", [])]
+            if data.get("active"):
+                return data.get("context")
     except Exception:
         pass
-    return []
+    return None
 
-def solicitar_scraping_en_vivo(api_url: str, target_url: str) -> Optional[Dict[str, Any]]:
-    """Pide al Microservicio Core API que ordene al worker de Playwright scrapear una URL."""
+def consultar_historial_usuario_backend(api_url: str, token: str, sid: str) -> Optional[Dict[str, Any]]:
+    """Consulta los reportes históricos del usuario autenticado y su contexto activo."""
+    if not token:
+        return None
     try:
-        url = f"{api_url}/api/v1/scrape/index"
-        payload = {"url": target_url, "guardar_snapshot": True}
-        resp = httpx.post(url, json=payload, timeout=60.0)
+        headers = {"Authorization": f"Bearer {token}"}
+        url = f"{api_url}/api/v1/chat/user-history"
+        if sid:
+            url += f"?session_id={sid}"
+        resp = httpx.get(url, headers=headers, timeout=5.0)
         if resp.status_code == 200:
             return resp.json()
-    except Exception as e:
-        st.error(f"Error al comunicar con Core API ({api_url}): {str(e)}")
+    except Exception:
+        pass
     return None
 
 def transcribir_audio_con_gemini(audio_bytes: bytes, mime_type: str, api_key: str) -> Optional[str]:
@@ -193,262 +173,326 @@ def transcribir_audio_con_gemini(audio_bytes: bytes, mime_type: str, api_key: st
     return None
 
 # =====================================================================
-# BARRA LATERAL: CONFIGURACIÓN DE MICROSERVICIOS Y MODELOS
+# LECTURA DE PARÁMETROS DE CONSULTA (URL QUERY PARAMS)
 # =====================================================================
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/8649/8649595.png", width=55)
-    st.markdown("### ⚙️ Motor de IA (LLM)")
-    
-    proveedor = st.radio(
-        "Proveedor del LLM:",
-        ["Google Gemini (Recomendado)", "Ollama (Microservicio Local)"],
-        index=0,
-        help="Google Gemini es el motor principal activo. También puedes alternar a Ollama local."
-    )
-    
-    api_key = DEFAULT_GEMINI_KEY
-    client: Optional[OpenAI] = None
-    modelo_seleccionado = ""
-    
-    if proveedor == "Google Gemini (Recomendado)":
-        api_key = st.text_input(
-            "Gemini API Key:",
-            value=DEFAULT_GEMINI_KEY,
-            type="password",
-            placeholder="AQ.Ab8...",
-            help="Clave de API de Google Gemini para inferencia del chatbot."
-        )
-        modelo_seleccionado = st.selectbox(
-            "Modelo Gemini:",
-            ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"],
-            index=0
-        )
-        if api_key:
-            client = OpenAI(
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                api_key=api_key
-            )
-            st.markdown(f'<span class="badge-tag badge-success">🟢 Gemini Conectado ({modelo_seleccionado})</span>', unsafe_allow_html=True)
-        else:
-            st.info("💡 Ingresa tu Gemini API Key para chatear.")
+url_model = st.query_params.get("model", "")
+url_provider = st.query_params.get("provider", "")
+url_reset = st.query_params.get("reset", "")
+url_auth = st.query_params.get("auth", "0")
+auth_token = st.query_params.get("token", "")
+session_id = st.query_params.get("sid", "")
+url_user = st.query_params.get("user", "")
 
-    else:
-        ollama_endpoint = st.text_input("URL de Ollama:", value=OLLAMA_BASE_URL)
-        modelos_locales = consultar_modelos_ollama(ollama_endpoint)
-        
-        if modelos_locales:
-            st.markdown(f'<span class="badge-tag badge-success">🟢 Ollama Conectado ({len(modelos_locales)} modelos)</span>', unsafe_allow_html=True)
-            modelo_seleccionado = st.selectbox("Modelo Ollama detectado:", modelos_locales)
-        else:
-            st.markdown('<span class="badge-tag badge-warning">🔴 Ollama no detectado</span>', unsafe_allow_html=True)
-            st.caption(f"Verifica el contenedor de Ollama en `{ollama_endpoint}`.")
-            modelo_seleccionado = st.text_input("Nombre de Modelo Ollama:", value="llama3.1:latest")
-            
+is_authenticated = (url_auth == "1" or url_auth.lower() == "true")
+
+# Selección de motor LLM: Gemini u Ollama
+es_ollama = (url_provider == "ollama") or (url_model and any(url_model.startswith(p) for p in ["llama", "qwen", "nomic"]))
+
+if es_ollama:
+    proveedor = "Ollama Local"
+    modelo_seleccionado = url_model or "llama3.1:latest"
+    client = OpenAI(
+        base_url=f"{OLLAMA_BASE_URL}/v1",
+        api_key="ollama"
+    )
+else:
+    proveedor = "Google Gemini"
+    modelo_seleccionado = url_model or DEFAULT_GEMINI_MODEL
+    if DEFAULT_GEMINI_KEY:
         client = OpenAI(
-            base_url=f"{ollama_endpoint}/v1",
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=DEFAULT_GEMINI_KEY
+        )
+    else:
+        # Fallback a Ollama si no se configuró clave de Gemini
+        proveedor = "Ollama Local"
+        modelo_seleccionado = "llama3.1:latest"
+        client = OpenAI(
+            base_url=f"{OLLAMA_BASE_URL}/v1",
             api_key="ollama"
         )
 
-    st.markdown("---")
-    
-    # 2. Origen de Datos Scrapeados (Consumo de Microservicio Core API)
-    st.markdown("### 📂 Datos Scrapeados a Auditar")
-    backend_endpoint = st.text_input("Core API URL:", value=BACKEND_API_URL, help="Endpoint del Microservicio 1 (FastAPI)")
-    
-    origen_datos = st.selectbox(
-        "Fuente de los datos:",
-        ["Capturas de Core API (PostgreSQL)", "Scraping en Vivo (Playwright)", "Ejemplo Precargado (MINEM)", "Texto Libre / JSON"]
-    )
-    
-    contexto_actual = SAMPLE_SCRAPED_DATA
-    
-    if origen_datos == "Capturas de Core API (PostgreSQL)":
-        snapshots = consultar_snapshots_backend(backend_endpoint)
-        if snapshots:
-            st.markdown('<span class="badge-tag badge-success">🟢 Core API Conectada</span>', unsafe_allow_html=True)
-            opciones_snap = {
-                f"[{s['id']}] {s['site_title']} ({s['total_items']} items)": s 
-                for s in snapshots
-            }
-            elegido = st.selectbox("Seleccionar Captura:", list(opciones_snap.keys()))
-            snap = opciones_snap[elegido]
-            contexto_actual = {
-                "url": snap["url"],
-                "site_title": snap["site_title"],
-                "fecha_captura": snap["created_at"],
-                "tipo": snap["tipo_contenido"],
-                "items": snap["data"]
-            }
-        else:
-            st.markdown('<span class="badge-tag badge-warning">⚠️ Sin snapshots en Core API</span>', unsafe_allow_html=True)
-            st.caption(f"No se pudo consultar `{backend_endpoint}/api/v1/snapshots/latest` o la BD está vacía. Usando datos de demostración.")
-            contexto_actual = SAMPLE_SCRAPED_DATA
-            
-    elif origen_datos == "Scraping en Vivo (Playwright)":
-        url_input = st.text_input("URL para scrapear en tiempo real:", value="https://news.ycombinator.com")
-        if st.button("🚀 Disparar Scraping en Vivo", use_container_width=True):
-            with st.spinner("El Microservicio 1 (FastAPI) y Microservicio 2 (Playwright) están scrapeando la página..."):
-                resultado_scraped = solicitar_scraping_en_vivo(backend_endpoint, url_input)
-                if resultado_scraped:
-                    st.success("✅ Scraping completado con éxito!")
-                    contexto_actual = {
-                        "url": resultado_scraped.get("url", url_input),
-                        "site_title": resultado_scraped.get("site_title", "Página Scrapeada"),
-                        "fecha_captura": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "tipo": resultado_scraped.get("tipo_contenido", "Index"),
-                        "items": resultado_scraped.get("data", [])
-                    }
-                    st.session_state.contexto_en_vivo = contexto_actual
-        if "contexto_en_vivo" in st.session_state:
-            contexto_actual = st.session_state.contexto_en_vivo
-
-    elif origen_datos == "Texto Libre / JSON":
-        texto_custom = st.text_area(
-            "Pega aquí datos de productos, artículos o noticias:",
-            value=json.dumps(SAMPLE_SCRAPED_DATA["items"], indent=2, ensure_ascii=False),
-            height=130
-        )
-        contexto_actual = {
-            "url": "Ingreso Manual de Analista",
-            "site_title": "Dataset personalizado",
-            "fecha_captura": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "tipo": "Personalizado",
-            "items": texto_custom
-        }
-
-    st.markdown("---")
-    
-    # 3. Transcripción de Audio por Voz (Google Gemini Multimodal)
-    st.markdown("### 🎙️ Comandos por Voz")
-    st.caption("Graba tu voz o sube un audio para consultar al bot.")
-    
-    audio_transcrito_prompt = None
-    
-    mic_audio = st.audio_input("Grabar desde el micrófono:")
-    archivo_audio = st.file_uploader("O subir archivo de audio:", type=["mp3", "wav", "m4a", "ogg"])
-    
-    audio_seleccionado = mic_audio or archivo_audio
-    
-    if audio_seleccionado is not None:
-        if st.button("Transcribir Audio con Gemini 🎧", use_container_width=True):
-            if not api_key or proveedor != "Google Gemini (Recomendado)":
-                st.error("Se requiere Gemini API Key en la barra lateral para transcribir audio.")
-            else:
-                try:
-                    with st.spinner("Transcribiendo audio con Google Gemini..."):
-                        audio_bytes = audio_seleccionado.read()
-                        mime_type = getattr(audio_seleccionado, "type", "audio/wav") or "audio/wav"
-                        texto_transcrito = transcribir_audio_con_gemini(audio_bytes, mime_type, api_key)
-                        if texto_transcrito:
-                            audio_transcrito_prompt = texto_transcrito
-                            st.success("¡Transcripción completada con éxito!")
-                            st.info(f'"{audio_transcrito_prompt}"')
-                except Exception as e:
-                    st.error(f"Error en transcripción: {str(e)}")
-
-    st.markdown("---")
-    if st.button("🧹 Limpiar Historial de Chat", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
-
 # =====================================================================
-# SISTEMA DE PROMPT ENGINEERING (RÚBRICA DE EVALUACIÓN)
+# RESOLUCIÓN DE CONTEXTO SEGÚN ESTADO DE AUTENTICACIÓN
 # =====================================================================
-def construir_system_prompt(contexto: Dict[str, Any]) -> str:
-    """
-    Construye el System Prompt aplicando formalmente los principios de Prompt Engineering:
-    - Delimitadores (###)
-    - Definición de Rol y Personalidad
-    - Chain of Thought (Pasos de razonamiento previo)
-    - Inferencia, Análisis de Sentimiento y Emisión de Opinión Crítica
-    """
-    datos_serializados = json.dumps(contexto.get("items", []), ensure_ascii=False, indent=2) if isinstance(contexto.get("items"), (list, dict)) else str(contexto.get("items", ""))
-    
-    return f"""Eres un **Auditor Senior de Inteligencia Web y Analista Estratégico de Datos Scrapeados**.
-Tu labor es examinar la información extraída de la web y emitir una **opinión analítica, crítica y fundamentada**.
+usuario_info = None
+historial_reportes: List[Dict[str, Any]] = []
+active_scrape: Optional[Dict[str, Any]] = None
 
-### METODOLOGÍA DE RAZONAMIENTO (Chain of Thought):
-1. **Inspección:** Lee atentamente los datos en la sección delimitada.
-2. **Inferencia y Sentimiento:** Evalúa el trasfondo de las publicaciones. Detecta si el tono es optimista, alarmante, institucional o defensivo.
-3. **Detección de Riesgos y Alertas:** Identifica conflictos, ajustes tarifarios, cambios regulatorios, fechas límite o discrepancias.
-4. **Opinión Crítica:** No seas un loro que solo repite las noticias. Ofrece conclusiones con valor añadido: qué implicancias tienen estos hechos, qué riesgos conllevan y qué acciones recomiendas.
-5. **Formato:** Utiliza formato Markdown profesional, viñetas y estructuración clara.
+if is_authenticated and auth_token:
+    hist_data = consultar_historial_usuario_backend(BACKEND_API_URL, auth_token, session_id)
+    if hist_data and hist_data.get("authenticated"):
+        usuario_info = hist_data.get("user", {})
+        historial_reportes = hist_data.get("reports", [])
+        active_scrape = hist_data.get("active_context")
+    else:
+        # Si el token falló o expiró, degradar a modo no autenticado
+        is_authenticated = False
 
-### DELIMITADORES DE CONTEXTO:
-Los datos que has recibido del proceso de scraping se encuentran estrictamente delimitados a continuación:
+if not is_authenticated:
+    # Modo no autenticado (Invitado): SOLO puede acceder al scraping activo en esta sesión
+    if session_id:
+        active_scrape = consultar_contexto_activo_backend(BACKEND_API_URL, session_id)
 
-### CONTEXTO DE DATOS SCRAPEADOS ###
-- **URL Objetivo:** {contexto.get("url")}
-- **Título del Portal:** {contexto.get("site_title")}
-- **Fecha de Captura:** {contexto.get("fecha_captura")}
-- **Categoría/Tipo:** {contexto.get("tipo")}
-
-CONTENIDO EXTRAÍDO:
-{datos_serializados}
-### FIN DE DATOS SCRAPEADOS ###
-
-Responde siempre en español, manteniendo tu postura de auditor experto y respaldando tu opinión con los datos disponibles."""
-
-# =====================================================================
-# PANTALLA PRINCIPAL: CHATBOT AUDITOR
-# =====================================================================
-st.markdown('<div class="main-header">🕷️ SIMAP - Chatbot Auditor de Inteligencia Web</div>', unsafe_allow_html=True)
-st.markdown(
-    f'<div class="sub-header">Microservicio 5: Asistente Conversacional & Voz (Whisper) | Conectado a Core API ({BACKEND_API_URL})</div>',
-    unsafe_allow_html=True
+# Control de reinicio de estado cuando cambia el contexto o usuario solicita limpiar
+context_key = (
+    is_authenticated,
+    auth_token[:15] if auth_token else "",
+    session_id,
+    active_scrape.get("url") if active_scrape else None,
+    len(historial_reportes),
+    url_reset
 )
 
-# Tarjeta de contexto activo
-items_count = len(contexto_actual["items"]) if isinstance(contexto_actual["items"], list) else "Contenido directo"
-st.markdown(f"""
-<div class="context-card">
-    <span class="badge-tag">🌐 Portal: {contexto_actual.get('site_title', 'Sin título')}</span>
-    <span class="badge-tag">🔗 URL: {contexto_actual.get('url', 'N/A')}</span>
-    <span class="badge-tag">📊 Registros: {items_count}</span>
-    <span class="badge-tag badge-warning">🤖 Motor: {modelo_seleccionado} ({proveedor.split()[0]})</span>
-</div>
-""", unsafe_allow_html=True)
+if "last_context_key" not in st.session_state or st.session_state.last_context_key != context_key:
+    st.session_state.last_context_key = context_key
+    st.session_state.messages = []
 
-# Inicializar historial de mensajes
+# =====================================================================
+# SISTEMA DE PROMPT ENGINEERING DIFERENCIADO
+# =====================================================================
+def construir_prompt_modo_invitado(active_scrape: Dict[str, Any]) -> str:
+    """Prompt estricto para modo anónimo: solo puede responder sobre la extracción actual."""
+    datos_items = active_scrape.get("items", [])
+    if isinstance(datos_items, (list, dict)):
+        items_str = json.dumps(datos_items, ensure_ascii=False, indent=2)
+    else:
+        items_str = str(datos_items)
+    
+    analisis_ia = active_scrape.get("analisis_ia", {})
+    delta = active_scrape.get("delta", {})
+
+    return f"""Eres un **Auditor Senior de Inteligencia Web y Analista Estratégico de Datos Scrapeados** de la plataforma SIMAP.
+Tu labor es examinar la información extraída de la web y emitir una opinión analítica, crítica y fundamentada.
+
+### REGLA ESTRICTA DE PRIVACIDAD Y ALCANCE (MODO INVITADO):
+- El usuario NO ha iniciado sesión.
+- Tu conocimiento y análisis están **ESTRICTAMENTE LIMITADOS** a los datos de la extracción en vivo que se presenta a continuación.
+- NO tienes acceso a análisis previos ni a ningún historial. Si el usuario te pregunta por otros sitios no incluidos aquí o por análisis anteriores, indícale amablemente que en modo invitado solo puedes auditar la extracción actual ({active_scrape.get('url')}) y que debe iniciar sesión para ver o comparar análisis anteriores.
+
+### DATOS DE LA EXTRACCIÓN EN VIVO:
+- **URL Objetivo:** {active_scrape.get("url")}
+- **Título del Portal:** {active_scrape.get("site_title")}
+- **Fecha de Captura:** {active_scrape.get("created_at")}
+- **Total de Elementos:** {active_scrape.get("total_items")}
+- **Resumen Preliminar:** {analisis_ia.get("resumen_ejecutivo", "N/A")}
+- **Categorías Detectadas:** {json.dumps(analisis_ia.get("categorias", {}), ensure_ascii=False)}
+- **Sentimientos:** {json.dumps(analisis_ia.get("sentimientos", {}), ensure_ascii=False)}
+- **Cambios Temporales (Delta):** {json.dumps(delta, ensure_ascii=False) if delta else "Línea base (sin cambios detectados)"}
+
+### CONTENIDO EXTRAÍDO EN VIVO:
+{items_str}
+### FIN DE CONTENIDO EXTRAÍDO ###
+
+METODOLOGÍA DE RESPUESTA:
+1. Responde siempre en español.
+2. Analiza el tono, sentimientos, alertas y riesgos basándote exclusivamente en estos datos.
+3. Sé profesional, estructurado con viñetas y emite conclusiones estratégicas de valor añadido."""
+
+
+def construir_prompt_modo_autenticado(usuario: Dict[str, Any], reportes: List[Dict[str, Any]], active_scrape: Optional[Dict[str, Any]]) -> str:
+    """Prompt enriquecido para usuario autenticado: acceso a todo su historial y extracción activa."""
+    user_name = usuario.get("nombre", "Usuario")
+    
+    historial_text = ""
+    if reportes:
+        for idx, r in enumerate(reportes, 1):
+            articulos_txt = ""
+            if r.get("muestra_articulos"):
+                articulos_txt = "\n      Muestra de títulos: " + ", ".join([f'"{a.get("titulo")}"' for a in r["muestra_articulos"][:5]])
+            
+            historial_text += f"""
+--- REPORTE #{idx} (ID: {r.get('id')}) ---
+- **URL:** {r.get('url')}
+- **Portal/Título:** {r.get('site_title')}
+- **Fecha de Análisis:** {r.get('created_at')}
+- **Total Registros:** {r.get('total_items')}
+- **Resumen Ejecutivo:** {r.get('resumen_ejecutivo')}
+- **Métricas:** {json.dumps(r.get('metricas', {}), ensure_ascii=False)}
+- **Delta/Cambios:** {json.dumps(r.get('diferencias_delta', {}), ensure_ascii=False)}{articulos_txt}
+"""
+    else:
+        historial_text = "El usuario aún no tiene análisis previos almacenados en su cuenta."
+
+    active_text = ""
+    if active_scrape:
+        items_preview = json.dumps(active_scrape.get("items", [])[:10] if isinstance(active_scrape.get("items"), list) else str(active_scrape.get("items", "")), ensure_ascii=False)
+        active_text = f"""
+### ANÁLISIS EN VIVO ACTUAL (SESIÓN ACTIVA) ###
+- **URL:** {active_scrape.get('url')}
+- **Título:** {active_scrape.get('site_title')}
+- **Fecha:** {active_scrape.get('created_at')}
+- **Total Registros:** {active_scrape.get('total_items')}
+- **Resumen IA:** {active_scrape.get('analisis_ia', {}).get('resumen_ejecutivo', 'N/A')}
+- **Contenido:** {items_preview}
+################################################
+"""
+
+    return f"""Eres el **Copiloto de Inteligencia Web SIMAP** personal de {user_name}.
+El usuario se encuentra **AUTENTICADO** y tiene acceso completo a su base histórica de análisis y a su sesión en vivo.
+
+### CAPACIDADES DEL COPILOTO AUTENTICADO:
+1. **Consultas Históricas:** Puedes responder sobre CUALQUIERA de los análisis que el usuario realizó previamente. Si te pregunta "¿Qué encontramos en RPP?", "¿Cuáles fueron los riesgos de El Comercio?", "¿Qué resumen hubo de tal fecha?", busca en el historial de reportes abajo y responde con precisión.
+2. **Comparación Temporal:** Puedes comparar dos o más análisis del historial (por ejemplo, cambios entre fechas, evolución de sentimiento, nuevas noticias o riesgos que surgieron).
+3. **Auditoría en Vivo:** Si hay un análisis en vivo activo, puedes responder sobre él y compararlo con sus versiones anteriores en el historial.
+
+{active_text}
+### BASE HISTÓRICA DE ANÁLISIS PREVIOS DEL USUARIO ({len(reportes)} reportes disponibles):
+{historial_text}
+### FIN DEL HISTORIAL ###
+
+Responde siempre en español, con postura de auditor experto y respaldando tus respuestas con los datos de sus reportes."""
+
+# =====================================================================
+# ENCABEZADO Y TARJETA DE CONTEXTO VISUAL
+# =====================================================================
+st.markdown('<div class="main-header">🕷️ SIMAP Copiloto</div>', unsafe_allow_html=True)
+
+if is_authenticated:
+    nombre_user = usuario_info.get("nombre") if usuario_info else (url_user or "Usuario")
+    st.markdown(
+        f'<div class="sub-header">Usuario: <b>{nombre_user}</b> · Historial completo habilitado · Motor: <b>{modelo_seleccionado}</b></div>',
+        unsafe_allow_html=True
+    )
+    # Tarjeta de contexto autenticado
+    live_badge = f'<span class="badge-tag">🌐 En Vivo: {active_scrape.get("site_title", "")[:20]}</span>' if active_scrape else ''
+    card_html = (
+        f'<div class="context-card" style="border-left: 3px solid #10b981;">'
+        f'<span class="badge-tag badge-success">👤 {nombre_user}</span>'
+        f'<span class="badge-tag">📚 {len(historial_reportes)} análisis guardados</span>'
+        f'{live_badge}'
+        f'<span class="badge-tag badge-success">🤖 {modelo_seleccionado}</span>'
+        f'</div>'
+    )
+    st.markdown(card_html, unsafe_allow_html=True)
+
+else:
+    # Modo no autenticado (Invitado)
+    st.markdown(
+        f'<div class="sub-header">Modo Invitado: Solo datos en vivo · Motor: <b>{modelo_seleccionado}</b></div>',
+        unsafe_allow_html=True
+    )
+    if active_scrape:
+        title_disp = active_scrape.get("site_title", "Página Web")[:28]
+        items_cnt = active_scrape.get("total_items", 0)
+        card_html = (
+            f'<div class="context-card" style="border-left: 3px solid #06b6d4;">'
+            f'<span class="badge-tag badge-warning">🔒 Modo Invitado (En Vivo)</span>'
+            f'<span class="badge-tag">🌐 {title_disp}</span>'
+            f'<span class="badge-tag">📊 {items_cnt} registros</span>'
+            f'<span class="badge-tag badge-success">🤖 {modelo_seleccionado}</span>'
+            f'</div>'
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+    else:
+        card_html = (
+            f'<div class="context-card" style="border-left: 3px solid #f59e0b;">'
+            f'<span class="badge-tag badge-warning">🔒 Modo Invitado</span>'
+            f'<span class="badge-tag badge-neutral">⚠️ Sin análisis activo</span>'
+            f'<span class="badge-tag badge-success">🤖 {modelo_seleccionado}</span>'
+            f'</div>'
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+
+
+# =====================================================================
+# INICIALIZACIÓN DE MENSAJES (GREETING)
+# =====================================================================
 if "messages" not in st.session_state or len(st.session_state.messages) == 0:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": f"👋 **Hola, soy tu Auditor de Inteligencia Web.** He cargado los datos scrapeados de **{contexto_actual.get('site_title')}**.\n\nPuedo responder cualquier pregunta, evaluar el sentimiento de las noticias, identificar posibles alertas o emitir mi **opinión analítica** sobre esta información. ¿Qué deseas analizar?"
-        }
-    ]
+    if not is_authenticated:
+        if not active_scrape:
+            initial_msg = (
+                "⚠️ **No se ha detectado ningún análisis activo.**\n\n"
+                "Como usuario invitado (sin iniciar sesión), el copiloto funciona **exclusivamente auditando los datos que extraigas en tiempo real**.\n\n"
+                "👉 **Para comenzar:** Ingresa una URL en el panel principal y haz clic en **'Analizar'**.\n\n"
+                "💡 *O inicia sesión en la barra superior si deseas consultar y comparar tus análisis históricos guardados.*"
+            )
+        else:
+            site_name = active_scrape.get("site_title", "Página Web")
+            site_url = active_scrape.get("url", "")
+            items_num = active_scrape.get("total_items", 0)
+            initial_msg = (
+                f"👋 **Hola, he cargado los datos del análisis en vivo de:**\n"
+                f"🌐 **{site_name}** (`{site_url}`)\n\n"
+                f"Como usuario invitado, mis respuestas están **estrictamente delimitadas a los datos de esta extracción en tiempo real** ({items_num} registros procesados).\n\n"
+                f"Puedes preguntarme sobre conclusiones estratégicas, riesgos detectados, análisis de sentimiento o detalles de este portal. ¿Qué deseas auditar?"
+            )
+    else:
+        nombre_user = usuario_info.get("nombre") if usuario_info else (url_user or "Usuario")
+        num_reportes = len(historial_reportes)
+        live_suffix = f" además de la auditoría activa de **{active_scrape.get('site_title', 'Página Web')}**" if active_scrape else ""
+        initial_msg = (
+            f"👋 **Hola {nombre_user}, bienvenido a tu Copiloto SIMAP.**\n\n"
+            f"Tienes acceso completo a tu historial con **{num_reportes} análisis previos** registrados en tu cuenta{live_suffix}.\n\n"
+            f"Puedes preguntarme sobre **cualquiera de tus análisis anteriores**, comparar cambios temporales, consultar riesgos detectados o auditar la información. ¿Qué deseas consultar hoy?"
+        )
+    
+    st.session_state.messages = [{"role": "assistant", "content": initial_msg}]
 
-# Botones de sugerencia rápida (Quick Prompts)
-st.markdown("**💡 Consultas analíticas rápidas:**")
+# =====================================================================
+# BOTONES DE SUGERENCIA RÁPIDA (QUICK PROMPTS)
+# =====================================================================
 col1, col2, col3, col4 = st.columns(4)
 
 prompt_sugerido = None
 with col1:
-    if st.button("📊 Opinión y Conclusiones", use_container_width=True):
-        prompt_sugerido = "¿Cuál es tu opinión crítica general sobre estos datos scrapeados? ¿Qué conclusiones estratégicas sacas?"
+    if st.button("📊 Conclusiones", use_container_width=True):
+        prompt_sugerido = "¿Cuál es tu opinión crítica general sobre estos datos? ¿Qué conclusiones estratégicas sacas?"
 with col2:
-    if st.button("⚠️ Detectar Alertas y Riesgos", use_container_width=True):
-        prompt_sugerido = "¿Detectas alguna señal de alarma, conflicto social o riesgo operativo urgente en estas publicaciones?"
+    if st.button("⚠️ Riesgos", use_container_width=True):
+        prompt_sugerido = "¿Detectas alguna señal de alarma, conflicto social o riesgo urgente en estas publicaciones?"
 with col3:
-    if st.button("🎭 Análisis de Sentimiento", use_container_width=True):
+    if st.button("🎭 Sentimiento", use_container_width=True):
         prompt_sugerido = "Realiza un análisis de sentimiento e infiere el tono predominante de los comunicados extraídos."
 with col4:
-    if st.button("📑 Resumen Ejecutivo", use_container_width=True):
+    if st.button("📑 Resumen", use_container_width=True):
         prompt_sugerido = "Sintetiza un resumen ejecutivo estructurado en 3 puntos clave con recomendaciones de acción."
-
-# Si hubo audio transcrito por Whisper, asignarlo como prompt
-if audio_transcrito_prompt:
-    prompt_sugerido = f"🎙️ [Consulta por Voz vía Whisper]: {audio_transcrito_prompt}"
 
 # Mostrar historial de chat
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Entrada de texto del usuario
-user_query = st.chat_input("Escribe tu consulta o pide una opinión sobre los datos scrapeados...")
+# =====================================================================
+# ENTRADA DE TEXTO Y AUDIO (MICRÓFONO AL COSTADO DEL BOTÓN DE ENVIAR)
+# =====================================================================
+user_input = st.chat_input(
+    "Escribe tu consulta o usa el micrófono para hablar...",
+    accept_audio=True
+)
 
-prompt_final = user_query or prompt_sugerido
+prompt_final = None
+
+if prompt_sugerido:
+    prompt_final = prompt_sugerido
+elif user_input:
+    input_dict = user_input.to_dict() if hasattr(user_input, "to_dict") else {}
+    texto_usuario = ""
+    if isinstance(user_input, str):
+        texto_usuario = user_input.strip()
+    elif "text" in input_dict:
+        texto_usuario = (input_dict.get("text") or "").strip()
+    
+    audio_obj = input_dict.get("audio")
+    
+    if audio_obj is not None:
+        try:
+            with st.spinner("🎙️ Transcribiendo audio con Google Gemini..."):
+                audio_bytes = audio_obj.read()
+                mime_type = getattr(audio_obj, "type", "audio/wav") or "audio/wav"
+                transcrito = transcribir_audio_con_gemini(audio_bytes, mime_type, DEFAULT_GEMINI_KEY)
+                if transcrito:
+                    if texto_usuario:
+                        prompt_final = f"{texto_usuario}\n\n🎙️ [Audio transcrito]: {transcrito}"
+                    else:
+                        prompt_final = f"🎙️ [Consulta por voz]: {transcrito}"
+                else:
+                    prompt_final = texto_usuario
+        except Exception as e:
+            st.error(f"Error procesando audio: {str(e)}")
+            prompt_final = texto_usuario
+    else:
+        prompt_final = texto_usuario
 
 if prompt_final:
     # 1. Registrar mensaje del usuario
@@ -461,23 +505,39 @@ if prompt_final:
         message_placeholder = st.empty()
         full_response = ""
         
-        if proveedor == "Google Gemini (Recomendado)" and not api_key:
-            error_msg = "⚠️ **Gemini API Key requerida**: Por favor, ingresa tu clave de Google Gemini en la barra lateral para poder interactuar."
-            message_placeholder.markdown(error_msg)
-            st.session_state.messages.append({"role": "assistant", "content": error_msg})
+        # Validar si el usuario no autenticado no tiene datos de scraping
+        if not is_authenticated and not active_scrape:
+            no_data_reply = (
+                "⚠️ **No se ha detectado ningún análisis activo en tu sesión.**\n\n"
+                "Como usuario invitado, funciono **exclusivamente auditando los datos que extraigas en tiempo real**.\n\n"
+                "👉 Por favor, ingresa una URL en el panel principal y haz clic en **'Analizar'** para auditar sus datos en vivo, "
+                "o **inicia sesión** en la barra superior si deseas consultar y comparar tus análisis históricos guardados."
+            )
+            message_placeholder.markdown(no_data_reply)
+            st.session_state.messages.append({"role": "assistant", "content": no_data_reply})
+
         elif client is None:
-            error_msg = "⚠️ **Cliente LLM no inicializado**: Revisa la configuración en la barra lateral."
+            error_msg = f"⚠️ **Cliente LLM no inicializado**: No se pudo conectar con {modelo_seleccionado} ({proveedor})."
             message_placeholder.markdown(error_msg)
             st.session_state.messages.append({"role": "assistant", "content": error_msg})
+
         else:
             try:
-                system_prompt = construir_system_prompt(contexto_actual)
+                # Construir System Prompt adaptado según el estado de autenticación
+                if is_authenticated:
+                    system_prompt = construir_prompt_modo_autenticado(
+                        usuario_info or {"nombre": url_user or "Usuario"},
+                        historial_reportes,
+                        active_scrape
+                    )
+                else:
+                    system_prompt = construir_prompt_modo_invitado(active_scrape)
                 
                 api_messages = [{"role": "system", "content": system_prompt}]
                 for m in st.session_state.messages[-6:]:
                     api_messages.append({"role": m["role"], "content": m["content"]})
 
-                with st.spinner(f"Analizando datos con {modelo_seleccionado}..."):
+                with st.spinner(f"Analizando con {modelo_seleccionado}..."):
                     response_stream = client.chat.completions.create(
                         model=modelo_seleccionado,
                         messages=api_messages,
@@ -496,6 +556,6 @@ if prompt_final:
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
                 
             except Exception as e:
-                err_text = f"❌ **Error al consultar el modelo ({modelo_seleccionado}):**\n`{str(e)}`\n\n*Si estás usando Google Gemini, verifica tu API Key. Si estás usando Ollama, verifica que esté corriendo en tu equipo (`ollama serve`) o dentro del contenedor.*"
+                err_text = f"❌ **Error al consultar el modelo ({modelo_seleccionado}):**\n`{str(e)}`\n\n*Puedes cambiar de modelo en el selector superior si este modelo presenta fallas.*"
                 message_placeholder.markdown(err_text)
                 st.session_state.messages.append({"role": "assistant", "content": err_text})

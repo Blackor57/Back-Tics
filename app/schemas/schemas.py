@@ -68,6 +68,7 @@ class AnalyzeRequest(BaseModel):
     url: HttpUrl = Field(..., json_schema_extra={"example": "https://rpp.pe/"})
     guardar_snapshot: bool = Field(default=True, description="Almacenar captura histórica en PostgreSQL")
     generar_documentos: bool = Field(default=True, description="Generar reportes Excel y Word con gráficos")
+    session_id: Optional[str] = Field(default=None, description="Identificador de sesión para el Chatbot Copiloto")
 
 
 class AnalyzeResponse(BaseModel):
@@ -77,7 +78,9 @@ class AnalyzeResponse(BaseModel):
     snapshot_anterior_id: Optional[int] = None
     es_linea_base: bool
     total_items: int
+    data: Optional[Any] = None
     analisis_ia: Dict[str, Any]
     delta: Optional[Dict[str, Any]] = None
     descargas: Dict[str, Optional[str]]
     created_at: str
+

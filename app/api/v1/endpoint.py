@@ -10,8 +10,10 @@ from sqlalchemy import select
 
 from app.core.config import REPORTS_DIR
 from app.core.database import get_db
-from app.core.security import get_optional_current_user
+from app.core.security import get_optional_current_user, get_current_user
 from app.models.entities import Snapshot, AnalysisReport, User
+from sqlalchemy.orm import selectinload
+from pydantic import BaseModel, Field
 from app.schemas.schemas import (
     ScrapeIndexRequest,
     ItemDetalleRequest,
@@ -36,6 +38,22 @@ router = APIRouter(tags=["Scraper & Inteligencia"])
 # Instanciamos el cliente del microservicio de scraping y servicios de IA
 scraper_client = ScraperClient()
 ollama_analyzer = OllamaAnalyzer()
+
+# Contextos activos de scraping en vivo en memoria para sesiones de Chatbot
+# Estructura: { session_id: { "url": str, "site_title": str, "total_items": int, "items": Any, "analisis_ia": dict, "delta": dict, "created_at": str } }
+ACTIVE_CHAT_CONTEXTS: Dict[str, Dict[str, Any]] = {}
+
+
+class ActiveContextPayload(BaseModel):
+    session_id: str
+    url: str
+    site_title: Optional[str] = "Página Web"
+    total_items: Optional[int] = 0
+    items: Optional[Any] = None
+    analisis_ia: Optional[Dict[str, Any]] = None
+    delta: Optional[Dict[str, Any]] = None
+    created_at: Optional[str] = None
+
 
 
 # ==========================================
@@ -270,6 +288,18 @@ async def analyze_and_report(
         except Exception as e:
             pass
 
+    # Registrar contexto en memoria si se proporcionó session_id
+    if payload.session_id:
+        ACTIVE_CHAT_CONTEXTS[payload.session_id] = {
+            "url": url_str,
+            "site_title": site_title,
+            "total_items": len(data_scraped) if isinstance(data_scraped, list) else 1,
+            "items": data_scraped,
+            "analisis_ia": analisis_ia,
+            "delta": delta,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+
     return {
         "url": url_str,
         "sitio_titulo": site_title,
@@ -277,6 +307,7 @@ async def analyze_and_report(
         "snapshot_anterior_id": snapshot_previo.id if snapshot_previo else None,
         "es_linea_base": es_linea_base,
         "total_items": len(data_scraped) if isinstance(data_scraped, list) else 1,
+        "data": data_scraped,
         "analisis_ia": analisis_ia,
         "delta": delta,
         "descargas": {
@@ -285,6 +316,7 @@ async def analyze_and_report(
         },
         "created_at": datetime.now().isoformat()
     }
+
 
 
 # =========================================================
@@ -410,3 +442,124 @@ async def list_latest_snapshots(limit: int = 10, db: AsyncSession = Depends(get_
         }
         for s in snaps
     ]
+
+
+# =========================================================
+# ENDPOINTS DE CONTEXTO E HISTORIAL PARA EL CHATBOT COPILOTO
+# =========================================================
+
+@router.post(
+    "/chat/active-context",
+    summary="Registrar contexto activo de scraping para el Chatbot (Modo En Vivo / No Autenticado)"
+)
+async def set_active_chat_context(payload: ActiveContextPayload):
+    from datetime import datetime
+    now_str = payload.created_at or datetime.now().strftime("%Y-%m-%d %H:%M")
+    
+    total = payload.total_items
+    if not total and isinstance(payload.items, list):
+        total = len(payload.items)
+    elif not total and payload.items:
+        total = 1
+
+    ACTIVE_CHAT_CONTEXTS[payload.session_id] = {
+        "url": payload.url,
+        "site_title": payload.site_title or "Página Web",
+        "total_items": total or 0,
+        "items": payload.items or [],
+        "analisis_ia": payload.analisis_ia or {},
+        "delta": payload.delta or {},
+        "created_at": now_str
+    }
+    return {
+        "status": "ok",
+        "session_id": payload.session_id,
+        "site_title": payload.site_title,
+        "total_items": total
+    }
+
+
+@router.get(
+    "/chat/active-context/{session_id}",
+    summary="Consultar el scraping activo para una sesión (Sin autenticación)"
+)
+async def get_active_chat_context(session_id: str):
+    ctx = ACTIVE_CHAT_CONTEXTS.get(session_id)
+    if not ctx:
+        return {"active": False, "context": None}
+    return {"active": True, "context": ctx}
+
+
+@router.delete(
+    "/chat/active-context/{session_id}",
+    summary="Limpiar el contexto activo de una sesión al reiniciar el chat"
+)
+async def delete_active_chat_context(session_id: str):
+    if session_id in ACTIVE_CHAT_CONTEXTS:
+        del ACTIVE_CHAT_CONTEXTS[session_id]
+    return {"status": "cleared", "session_id": session_id}
+
+
+@router.get(
+    "/chat/user-history",
+    summary="Consultar el historial completo de análisis del usuario autenticado para el Chatbot"
+)
+async def get_chat_user_history(
+    session_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(AnalysisReport)
+        .options(selectinload(AnalysisReport.current_snapshot))
+        .where(AnalysisReport.user_id == current_user.id)
+        .order_by(AnalysisReport.created_at.desc())
+        .limit(30)
+    )
+    res = await db.execute(stmt)
+    reports = res.scalars().all()
+
+    formatted_reports = []
+    for r in reports:
+        snap = r.current_snapshot
+        items_sample = []
+        if snap and snap.data:
+            if isinstance(snap.data, list):
+                # Extraer muestra de los primeros 6 elementos para no saturar tokens
+                for it in snap.data[:6]:
+                    if isinstance(it, dict):
+                        items_sample.append({
+                            "titulo": it.get("titulo") or it.get("title") or "Sin título",
+                            "url": it.get("url") or "",
+                            "resumen": (it.get("resumen") or it.get("snippet") or "")[:150]
+                        })
+                    elif isinstance(it, str):
+                        items_sample.append({"titulo": it[:120], "url": ""})
+            elif isinstance(snap.data, str):
+                items_sample = [{"titulo": snap.data[:200], "url": r.url}]
+
+        formatted_reports.append({
+            "id": r.id,
+            "url": r.url,
+            "site_title": (snap.site_title if snap else None) or r.url,
+            "created_at": r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else None,
+            "resumen_ejecutivo": r.resumen_ejecutivo or "Sin resumen disponible.",
+            "metricas": r.metricas or {},
+            "diferencias_delta": r.diferencias_delta or {},
+            "total_items": snap.total_items if snap else 0,
+            "muestra_articulos": items_sample
+        })
+
+    active_ctx = ACTIVE_CHAT_CONTEXTS.get(session_id) if session_id else None
+
+    return {
+        "authenticated": True,
+        "user": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "nombre": current_user.nombre_completo or current_user.email.split("@")[0]
+        },
+        "active_context": active_ctx,
+        "total_reports": len(formatted_reports),
+        "reports": formatted_reports
+    }
