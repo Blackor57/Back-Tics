@@ -62,6 +62,8 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: llama3.1:latest
       SCRAPER_SERVICE_URL: http://scraper_service:8001
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
     volumes:
       - ./reports:/app/reports
     depends_on:

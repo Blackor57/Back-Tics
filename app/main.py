@@ -13,6 +13,7 @@ import uvicorn
 from app.api.v1.endpoint import router as scrape_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.tracking import router as tracking_router
+from app.api.v1.image_search import router as image_search_router
 from app.core.database import init_db
 from app.services.monitor_scheduler import MonitorScheduler
 
@@ -65,6 +66,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1/auth")
 app.include_router(tracking_router, prefix="/api/v1/tracking")
 app.include_router(scrape_router, prefix="/api/v1")
+app.include_router(image_search_router, prefix="/api/v1/image-search")
 
 
 

@@ -52,6 +52,13 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:latest")
 OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "180.0"))
 
 # =========================================================
+# CONFIGURACIÓN GEMINI API (BÚSQUEDA POR IMAGEN / VISION)
+# =========================================================
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# Modelo multimodal recomendado: gemini-1.5-flash-latest (rápido y con visión)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+# =========================================================
 # DIRECTORIO DE REPORTES
 # =========================================================
 REPORTS_DIR = BASE_DIR / "reports"
