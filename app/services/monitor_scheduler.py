@@ -1,7 +1,9 @@
 # app/services/monitor_scheduler.py
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -12,6 +14,8 @@ from app.services.scraper_client import ScraperClient
 from app.services.snapshot_service import SnapshotService
 from app.services.ollama_analyzer import OllamaAnalyzer
 from app.services.email_service import EmailService
+from app.services.excel_reporter import ExcelReporter
+from app.services.rpa_service import RPA_DIR
 
 logger = logging.getLogger("monitor_scheduler")
 
@@ -137,14 +141,20 @@ class MonitorScheduler:
 
                     # 4. Comprobar si hay cambios relevantes (novedades en lista o modificaciones en texto continuo)
                     total_nuevos = delta.get("total_nuevos", 0) if delta else 0
-                    cambio_texto = not delta.get("es_lista", True) and abs(delta.get("variacion_caracteres", 0)) > 50 if delta else False
+                    cambio_texto = (
+                        not delta.get("es_lista", True)
+                        and abs(delta.get("variacion_caracteres", 0)) > 50
+                        if delta
+                        else False
+                    )
+                    hay_cambios = bool(delta and (total_nuevos > 0 or cambio_texto))
 
-                    if delta and (total_nuevos > 0 or cambio_texto):
-                        logger.info(f"🔔 Cambios detectados en {target.url} ({total_nuevos} novedades/cambios). Generando análisis y alerta...")
-
-                        
-                        # Análisis de IA con Ollama
-                        analisis_ia = {}
+                    analisis_ia: dict = {}
+                    if hay_cambios:
+                        logger.info(
+                            f"🔔 Cambios detectados en {target.url} "
+                            f"({total_nuevos} novedades/cambios). Generando análisis y alerta..."
+                        )
                         try:
                             analisis_ia = await ollama.analizar_contenido(
                                 url=target.url,
@@ -155,10 +165,38 @@ class MonitorScheduler:
                         except Exception as err_ia:
                             logger.warning(f"No se pudo completar el análisis de IA para la alerta: {str(err_ia)}")
                             analisis_ia = {
-                                "resumen_ejecutivo": f"Se identificaron {total_nuevos} nuevas publicaciones en la web monitoreada."
+                                "resumen_ejecutivo": (
+                                    f"Se identificaron {total_nuevos} nuevas publicaciones "
+                                    f"en la web monitoreada."
+                                )
                             }
 
-                        # Registrar el reporte en la base de datos vinculado al usuario
+                    # 5. Generar el Excel de esta ejecución (se adjunta al correo)
+                    articulos_excel = (
+                        data_scraped
+                        if isinstance(data_scraped, list)
+                        else [{"titulo": site_title, "url": target.url}]
+                    )
+                    archivo_excel: Optional[Path] = None
+                    try:
+                        archivo_excel = RPA_DIR / (
+                            f"rpa_monitor_{target.id}_{uuid.uuid4().hex[:8]}.xlsx"
+                        )
+                        ExcelReporter.generar_reporte(
+                            url=target.url,
+                            site_title=site_title,
+                            analisis_ia=analisis_ia,
+                            articulos=articulos_excel,
+                            delta=delta,
+                            chart_paths=[],
+                            output_file=archivo_excel,
+                        )
+                    except Exception as err_excel:
+                        logger.warning(f"No se pudo generar el Excel del monitoreo: {str(err_excel)}")
+                        archivo_excel = None
+
+                    # 6. Registrar el reporte histórico y despachar el correo con el Excel
+                    if hay_cambios:
                         try:
                             reporte = AnalysisReport(
                                 user_id=target.user_id,
@@ -170,29 +208,53 @@ class MonitorScheduler:
                                     "categorias": analisis_ia.get("categorias"),
                                     "sentimientos": analisis_ia.get("sentimientos")
                                 },
-                                diferencias_delta=delta
+                                diferencias_delta=delta,
+                                excel_path=str(archivo_excel) if archivo_excel else None,
                             )
                             db.add(reporte)
                         except Exception as e_rep:
                             logger.warning(f"No se pudo registrar reporte histórico: {str(e_rep)}")
 
-                        # 5. Enviar correo de alerta si está habilitado
-                        if target.notificar_email and target.user and target.user.email:
-                            novedades = delta.get("novedades", [])
+                    if target.notificar_email and target.user and target.user.email:
+                        nombre_usuario = (
+                            target.user.nombre_completo or target.user.email.split("@")[0]
+                        )
+                        if hay_cambios:
+                            novedades = delta.get("nuevos_articulos", []) if delta else []
                             resumen_ia = analisis_ia.get("resumen_ejecutivo", "")
                             sentimientos = analisis_ia.get("sentimientos", {})
                             sentimiento_str = None
                             if sentimientos and isinstance(sentimientos, dict):
-                                sentimiento_str = ", ".join([f"{k}: {v}" for k, v in sentimientos.items()])
+                                sentimiento_str = ", ".join(
+                                    [f"{k}: {v}" for k, v in sentimientos.items()]
+                                )
 
                             await EmailService.enviar_alerta_cambio_relevante(
                                 destinatario=target.user.email,
-                                nombre_usuario=target.user.nombre_completo or target.user.email.split("@")[0],
+                                nombre_usuario=nombre_usuario,
                                 url_monitoreada=target.url,
                                 total_nuevos=total_nuevos,
                                 resumen_ejecutivo=resumen_ia,
                                 novedades=novedades,
-                                sentimiento_general=sentimiento_str
+                                sentimiento_general=sentimiento_str,
+                                adjuntos=[archivo_excel] if archivo_excel else None,
+                            )
+                        elif archivo_excel:
+                            # Cada ejecución programada entrega el Excel aunque no haya cambios.
+                            await EmailService.enviar_reporte_excel(
+                                destinatario=target.user.email,
+                                nombre_usuario=nombre_usuario,
+                                url_fuente=target.url,
+                                archivo_excel=archivo_excel,
+                                total_registros=(
+                                    len(data_scraped) if isinstance(data_scraped, list) else 1
+                                ),
+                                resumen_ejecutivo=(
+                                    "Chequeo programado completado sin cambios relevantes "
+                                    "respecto a la captura anterior."
+                                ),
+                                cambios_detectados=False,
+                                titulo_reporte="Reporte de monitoreo continuo",
                             )
 
                     # Actualizar fecha del último chequeo

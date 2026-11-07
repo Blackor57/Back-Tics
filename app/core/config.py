@@ -84,4 +84,13 @@ SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://localhost:8001")
 # =========================================================
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
+# =========================================================
+# CONFIGURACIÓN DE GOOGLE GEMINI (VISION / IA MULTIMODAL)
+# =========================================================
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash-lite")
+GEMINI_GENERATION_MODEL = os.getenv("GEMINI_GENERATION_MODEL", "gemini-2.5-flash-lite")
+GEMINI_MAX_TOKENS = int(os.getenv("GEMINI_MAX_TOKENS", "8192"))
+GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.2"))
+
 

@@ -32,6 +32,7 @@ from app.services.ollama_analyzer import OllamaAnalyzer
 from app.services.chart_generator import ChartGenerator
 from app.services.excel_reporter import ExcelReporter
 from app.services.word_reporter import WordReporter
+from app.services.email_service import EmailService
 
 router = APIRouter(tags=["Scraper & Inteligencia"])
 
@@ -206,6 +207,8 @@ async def analyze_and_report(
     # 5. Generar Gráficos y Reportes en Excel y Word
     excel_url = None
     word_url = None
+    ruta_excel_adjunto = None
+    correo_enviado = False
 
     if payload.generar_documentos:
         temp_chart_dir = REPORTS_DIR / "charts"
@@ -285,8 +288,32 @@ async def analyze_and_report(
                 excel_url = f"/api/v1/reports/file/{excel_filename}"
                 word_url = f"/api/v1/reports/file/{word_filename}"
 
+            ruta_excel_adjunto = excel_path
+
         except Exception as e:
             pass
+
+    # 6. Enviar el Excel al correo registrado por el usuario autenticado
+    if current_user and current_user.email and ruta_excel_adjunto and ruta_excel_adjunto.exists():
+        sentimientos = analisis_ia.get("sentimientos", {})
+        sentimiento_str = None
+        if isinstance(sentimientos, dict) and sentimientos:
+            sentimiento_str = ", ".join(f"{k}: {v}" for k, v in sentimientos.items())
+
+        try:
+            correo_enviado = await EmailService.enviar_reporte_excel(
+                destinatario=current_user.email,
+                nombre_usuario=current_user.nombre_completo or current_user.email.split("@")[0],
+                url_fuente=url_str,
+                archivo_excel=ruta_excel_adjunto,
+                total_registros=len(data_scraped) if isinstance(data_scraped, list) else 1,
+                resumen_ejecutivo=analisis_ia.get("resumen_ejecutivo"),
+                sentimiento_general=sentimiento_str,
+                cambios_detectados=bool(delta and delta.get("total_nuevos", 0) > 0),
+                titulo_reporte="Reporte de auditoría web",
+            )
+        except Exception as error:
+            print(f"[SIMAP] No se pudo enviar el reporte Excel por correo: {error}")
 
     # Registrar contexto en memoria si se proporcionó session_id
     if payload.session_id:
@@ -314,6 +341,8 @@ async def analyze_and_report(
             "excel": excel_url,
             "word": word_url
         },
+        "correo_enviado": correo_enviado,
+        "correo_destino": current_user.email if correo_enviado and current_user else None,
         "created_at": datetime.now().isoformat()
     }
 

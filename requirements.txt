@@ -18,4 +18,5 @@ pyjwt>=2.8.0
 bcrypt>=4.1.0
 python-multipart>=0.0.9
 streamlit>=1.35.0
-openai>=1.30.0
+openai>=1.30.0google-generativeai>=0.8.3
+pillow>=10.2.0

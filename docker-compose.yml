@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # =========================================================
   # MICROSERVICIO 4: PERSISTENCIA (POSTGRESQL 16)
@@ -17,6 +15,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d simap_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - simap_net
 
@@ -31,6 +34,27 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - simap_net
+
+  # Descarga el modelo configurado al iniciar el stack (una sola vez).
+  # Sin este paso Ollama responde 404 "model not found" y el análisis usa el fallback heurístico.
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: simap_ollama_init
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+    command: ["pull", "${OLLAMA_MODEL:-llama3.2:3b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
     networks:
       - simap_net
 
@@ -55,19 +79,28 @@ services:
     build: .
     container_name: simap_backend
     restart: always
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     environment:
+      # Las variables de 'environment' tienen prioridad sobre '.env',
+      # por eso aquí se apunta a los nombres de servicio de la red Docker.
       DATABASE_URL: postgresql+asyncpg://postgres:postgres_password@db:5432/simap_db
+      POSTGRES_HOST: db
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: llama3.1:latest
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       SCRAPER_SERVICE_URL: http://scraper_service:8001
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
     volumes:
       - ./reports:/app/reports
     depends_on:
-      - db
-      - ollama
-      - scraper_service
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      scraper_service:
+        condition: service_started
     networks:
       - simap_net
 

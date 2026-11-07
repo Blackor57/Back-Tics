@@ -82,5 +82,7 @@ class AnalyzeResponse(BaseModel):
     analisis_ia: Dict[str, Any]
     delta: Optional[Dict[str, Any]] = None
     descargas: Dict[str, Optional[str]]
+    correo_enviado: bool = False
+    correo_destino: Optional[str] = None
     created_at: str
 

@@ -13,6 +13,11 @@ import uvicorn
 from app.api.v1.endpoint import router as scrape_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.tracking import router as tracking_router
+from app.api.v1.rpa import router as rpa_router
+try:
+    from app.api.v1.vision import router as vision_router
+except Exception:
+    vision_router = None
 from app.core.database import init_db
 from app.services.monitor_scheduler import MonitorScheduler
 
@@ -57,6 +62,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 # =========================================================
@@ -65,6 +71,9 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1/auth")
 app.include_router(tracking_router, prefix="/api/v1/tracking")
 app.include_router(scrape_router, prefix="/api/v1")
+app.include_router(rpa_router, prefix="/api/v1")
+if vision_router:
+    app.include_router(vision_router, prefix="/api/v1")
 
 
 

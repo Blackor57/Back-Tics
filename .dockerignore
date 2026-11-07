@@ -7,3 +7,10 @@ env/
 .git/
 .gitignore
 .dockerignore
+# Los secretos se inyectan en tiempo de ejecución con env_file de docker-compose
+.env
+.env.*
+!.env.example
+reports/
+media_downloads/
+.idea/
